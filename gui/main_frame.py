@@ -19,7 +19,7 @@ from .svg_viewer_dummy import SVGViewerDummy
 
 class MainFrame(wx.Frame):
     def __init__(self):
-        wx.Frame.__init__(self, None, title="FluidNC_gCodeSender_GUI", size=(1200, 800))
+        wx.Frame.__init__(self, None, title="FluidNC_gCodeSender", size=(1200, 800))
         self.state = StateManager.get()
 
         # AUI manager
@@ -94,60 +94,59 @@ class MainFrame(wx.Frame):
         self._mgr.Update()
         self._sync_view_menu()
 
-def _enter_normal_mode(self):
-    # Shrink setup bar
-    self._mgr.DetachPane(self.setup_panel)
-    self._mgr.AddPane(
-        self.setup_panel,
-        aui.AuiPaneInfo()
-        .Name("setup").Top().Row(0).Layer(0).Fixed().BestSize(-1, 30)
-        .CaptionVisible(False).CloseButton(False),
-    )
+    def _enter_normal_mode(self):
+        # Shrink setup bar
+        self._mgr.DetachPane(self.setup_panel)
+        self._mgr.AddPane(
+            self.setup_panel,
+            aui.AuiPaneInfo()
+            .Name("setup").Top().Row(0).Layer(0).Fixed().BestSize(-1, 30)
+            .CaptionVisible(False).CloseButton(False),
+        )
 
-    # Build layout only once, after connection
-    saved = self.state.get_value("aui_layout", {})
-    if saved and saved.get("perspective"):
-        self._mgr.LoadPerspective(saved["perspective"], update=False)
-    else:
-        # FIRST-RUN default layout (no maximised pane)
-        self._mgr.AddPane(
-            self.settings_panel,
-            aui.AuiPaneInfo()
-            .Name("settings").Caption("Settings")
-            .Right().BestSize(300, 400).MinSize(250, 300),
-        )
-        self._mgr.AddPane(
-            self.dro_panel,
-            aui.AuiPaneInfo()
-            .Name("dro").Caption("DRO")
-            .Bottom().BestSize(400, 120).MinSize(200, 100)
-            .CloseButton(False),
-        )
-        self._mgr.AddPane(
-            self.jog_panel,
-            aui.AuiPaneInfo()
-            .Name("jog").Caption("Jog")
-            .Bottom().BestSize(400, 150).MinSize(200, 120)
-            .CloseButton(False),
-        )
-        self._mgr.AddPane(
-            self.svg_panel,
-            aui.AuiPaneInfo()
-            .Name("svg").Caption("SVG Viewer")
-            .Centre()
-            .BestSize(600, 400).MinSize(300, 200)
-            .Floatable(False).Resizable(True),
-        )
-        print("Perspective:", self._mgr.SavePerspective())
+        # Build layout only once, after connection
+        saved = self.state.get_value("aui_layout", {})
+        if saved and saved.get("perspective"):
+            self._mgr.LoadPerspective(saved["perspective"], update=False)
+        else:
+            # FIRST-RUN default layout (no maximised pane)
+            self._mgr.AddPane(
+                self.settings_panel,
+                aui.AuiPaneInfo()
+                .Name("settings").Caption("Settings")
+                .Right().BestSize(300, 400).MinSize(250, 300),
+            )
+            self._mgr.AddPane(
+                self.dro_panel,
+                aui.AuiPaneInfo()
+                .Name("dro").Caption("DRO")
+                .Bottom().BestSize(400, 120).MinSize(200, 100)
+                .CloseButton(False),
+            )
+            self._mgr.AddPane(
+                self.jog_panel,
+                aui.AuiPaneInfo()
+                .Name("jog").Caption("Jog")
+                .Bottom().BestSize(400, 150).MinSize(200, 120)
+                .CloseButton(False),
+            )
+            self._mgr.AddPane(
+                self.svg_panel,
+                aui.AuiPaneInfo()
+                .Name("svg").Caption("SVG Viewer")
+                .Centre()
+                .BestSize(600, 400).MinSize(300, 200)
+                .Floatable(False).Resizable(True),
+            )
 
-    # Ensure all panes are visible
-    for name in ("dro", "jog", "settings", "svg"):
-        pane = self._mgr.GetPane(name)
-        if pane.IsOk():
-            pane.Show(True)
+        # Ensure all panes are visible
+        for name in ("dro", "jog", "settings", "svg"):
+            pane = self._mgr.GetPane(name)
+            if pane.IsOk():
+                pane.Show(True)
 
-    self._mgr.Update()
-    self._sync_view_menu()
+        self._mgr.Update()
+        self._sync_view_menu()
 
     # ---------- Menu helpers ----------
     def on_toggle_view(self, evt):
