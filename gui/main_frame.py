@@ -124,7 +124,7 @@ class MainFrame(wx.Frame):
         if saved and saved.get("perspective"):
             self._mgr.LoadPerspective(saved["perspective"], update=False)
         else:
-            # FIRST-RUN: no CenterPane() anywhere
+            # FIRST-RUN, NON-MAXIMISED LAYOUT
             self._mgr.AddPane(
                 self.settings_panel,
                 aui.AuiPaneInfo()
@@ -135,23 +135,21 @@ class MainFrame(wx.Frame):
                 self.dro_panel,
                 aui.AuiPaneInfo()
                 .Name("dro").Caption("DRO")
-                .Bottom().Row(0).Position(0)
-                .BestSize(400, 120).MinSize(200, 100)
+                .Bottom().BestSize(400, 120).MinSize(200, 100)
                 .CloseButton(False),
             )
             self._mgr.AddPane(
                 self.jog_panel,
                 aui.AuiPaneInfo()
                 .Name("jog").Caption("Jog")
-                .Bottom().Row(0).Position(1)
-                .BestSize(400, 150).MinSize(200, 120)
+                .Bottom().BestSize(400, 150).MinSize(200, 120)
                 .CloseButton(False),
             )
             self._mgr.AddPane(
                 self.svg_panel,
                 aui.AuiPaneInfo()
                 .Name("svg").Caption("SVG Viewer")
-                .CentrePane()        # <— REMOVE THIS LINE
+                .Centre()
                 .BestSize(600, 400).MinSize(300, 200)
                 .Floatable(False).Resizable(True),
             )
