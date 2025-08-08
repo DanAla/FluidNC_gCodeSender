@@ -1,14 +1,5 @@
-'''
-gui/main_frame.py
-Uses wx.aui.AuiManager for dockable panes:
-SVG viewer (left)
-GCode editor (right)
-DRO + Jog (bottom)
-Macro panel (tabbed)
-All panes are resizable, floatable, and save their state via state_manager.
-'''
-
 """
+gui/main_frame.py
 Single-window application wxPython frame using wx.aui.AuiManager.  
 Embedding all panes and handling for flexible docking.
 Automatically restores positions from StateManager.
@@ -49,7 +40,7 @@ class MainFrame(wx.Frame):
         self.client.on_connect_cb = lambda: wx.CallAfter(self._enter_normal_mode)
         self.client.on_disconnect_cb = lambda: wx.CallAfter(self._enter_setup_mode)
 
-        # Child panes
+        # Child widgets (created but NOT added to manager yet)
         self.setup_panel = TelnetSetupPanel(self, on_success=self._enter_normal_mode)
         self.dro_panel = DROPanel(self, self.client)
         self.jog_panel = JogPanel(self, self.client)
@@ -82,15 +73,8 @@ class MainFrame(wx.Frame):
         if geo and len(geo) == 4:
             self.SetRect(geo)
 
-        # Decide initial mode
-        if not self.client.host:
-            self._enter_setup_mode()
-        else:
-            self.client.start()
-            if not self.client.connected:
-                self._enter_setup_mode()
-            else:
-                self._enter_normal_mode()
+        # Start with setup pane only
+        self._enter_setup_mode()
 
         self.Bind(wx.EVT_CLOSE, self.on_close)
 
@@ -99,11 +83,13 @@ class MainFrame(wx.Frame):
         self.client.auto_reconnect = False
         self.client.stop()
 
-        # Hide every normal pane
-        for _, panel in self.view_items.values():
-            self._mgr.GetPane(panel).Hide()
+        # Remove any normal panes that might exist
+        for name in ("dro", "jog", "settings", "svg"):
+            pane = self._mgr.GetPane(name)
+            if pane.IsOk():
+                self._mgr.ClosePane(pane)
 
-        # Show the full-size setup pane
+        # Show full-size setup pane
         self._mgr.DetachPane(self.setup_panel)
         self._mgr.AddPane(
             self.setup_panel,
@@ -114,17 +100,22 @@ class MainFrame(wx.Frame):
         self._sync_view_menu()
 
     def _enter_normal_mode(self):
-        # ---------- Shrink connection bar ----------
-        self._mgr.GetPane("setup").Top().Row(0).Layer(0).Fixed().BestSize(
-            -1, 30
-        ).CaptionVisible(False).CloseButton(False).Show(True)
+        # Shrink setup bar
+        self._mgr.DetachPane(self.setup_panel)
+        self._mgr.AddPane(
+            self.setup_panel,
+            aui.AuiPaneInfo()
+            .Name("setup").Top().Row(0).Layer(0).Fixed().BestSize(-1, 30)
+            .CaptionVisible(False).CloseButton(False),
+        )
 
-        # ---------- Build or reload layout ----------
+        # Build layout only once, after connection
         saved = self.state.get_value("aui_layout", {})
         if saved and saved.get("perspective"):
+            # Restore saved layout
             self._mgr.LoadPerspective(saved["perspective"], update=False)
         else:
-            # FIRST-RUN, NON-MAXIMISED LAYOUT
+            # FIRST-RUN default layout (no maximised pane)
             self._mgr.AddPane(
                 self.settings_panel,
                 aui.AuiPaneInfo()
@@ -149,16 +140,15 @@ class MainFrame(wx.Frame):
                 self.svg_panel,
                 aui.AuiPaneInfo()
                 .Name("svg").Caption("SVG Viewer")
-                .Centre()
-                .BestSize(600, 400).MinSize(300, 200)
+                .Centre().BestSize(600, 400).MinSize(300, 200)
                 .Floatable(False).Resizable(True),
             )
 
-        # Remove any maximise flag before saving
+        # Ensure all panes are shown
         for name in ("dro", "jog", "settings", "svg"):
             pane = self._mgr.GetPane(name)
             if pane.IsOk():
-                pane.MaximizeButton(False).Maximize(False)
+                pane.Show(True)
 
         self._mgr.Update()
         self._sync_view_menu()
@@ -192,7 +182,7 @@ class MainFrame(wx.Frame):
         self.state.shutdown()
         self._mgr.UnInit()
         self.Destroy()
-    
+
     # ---------- Telnet DRO ----------
     def _on_dro(self, mpos, wpos):
         wx.CallAfter(self.dro_panel.update_dro, mpos, wpos)
