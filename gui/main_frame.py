@@ -1,13 +1,8 @@
 """
 gui/main_frame.py
-Single-window application wxPython frame using wx.aui.AuiManager.  
-Embedding all panes and handling for flexible docking.
-Automatically restores positions from StateManager.
-View menu toggles plus connection state logic.
-- All panes are embedded (no floating dialogs).
-- View menu toggles visibility.
-- Telnet setup pane appears when host/port missing or unreachable.
-- Layout saved/loaded without maximisation.
+Single-window application using wx.aui.AuiManager.
+- All normal panes are added **only after** a connection is established.
+- No pane is ever maximised on first run or after restart.
 """
 
 import wx
@@ -83,7 +78,7 @@ class MainFrame(wx.Frame):
         self.client.auto_reconnect = False
         self.client.stop()
 
-        # Remove any normal panes that might exist
+        # Close / remove any normal panes that might exist
         for name in ("dro", "jog", "settings", "svg"):
             pane = self._mgr.GetPane(name)
             if pane.IsOk():
@@ -112,7 +107,6 @@ class MainFrame(wx.Frame):
         # Build layout only once, after connection
         saved = self.state.get_value("aui_layout", {})
         if saved and saved.get("perspective"):
-            # Restore saved layout
             self._mgr.LoadPerspective(saved["perspective"], update=False)
         else:
             # FIRST-RUN default layout (no maximised pane)
@@ -140,11 +134,12 @@ class MainFrame(wx.Frame):
                 self.svg_panel,
                 aui.AuiPaneInfo()
                 .Name("svg").Caption("SVG Viewer")
-                .Centre().BestSize(600, 400).MinSize(300, 200)
+                .Centre()
+                .BestSize(600, 400).MinSize(300, 200)
                 .Floatable(False).Resizable(True),
             )
 
-        # Ensure all panes are shown
+        # Ensure all panes are visible
         for name in ("dro", "jog", "settings", "svg"):
             pane = self._mgr.GetPane(name)
             if pane.IsOk():
