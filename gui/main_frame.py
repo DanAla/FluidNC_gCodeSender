@@ -19,7 +19,7 @@ from .svg_viewer_dummy import SVGViewerDummy
 
 class MainFrame(wx.Frame):
     def __init__(self):
-        wx.Frame.__init__(self, None, title="FluidNC_gCodeSender", size=(1200, 800))
+        wx.Frame.__init__(self, None, title="FluidNC_gCodeSender_GUI", size=(1200, 800))
         self.state = StateManager.get()
 
         # AUI manager
