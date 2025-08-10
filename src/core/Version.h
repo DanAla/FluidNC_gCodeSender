@@ -21,10 +21,10 @@ constexpr const char* APP_NAME = "FluidNC gCode Sender";
 #define VERSION_MINOR "1"
 #endif
 #ifndef VERSION_PATCH
-#define VERSION_PATCH "0"
+#define VERSION_PATCH "1"
 #endif
 #ifndef VERSION_STRING
-#define VERSION_STRING "0.1.0"
+#define VERSION_STRING "0.1.1"
 #endif
 
 constexpr const char* VERSION_MAJOR_STR = VERSION_MAJOR;
