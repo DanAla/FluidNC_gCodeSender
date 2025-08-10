@@ -15,7 +15,17 @@
 
 class ConnectionManager;
 class StateManager;
-struct MachineStatus;
+
+// Simple machine status structure
+struct MachineStatus {
+    std::string state = "Idle";  // Idle, Run, Hold, Jog, Alarm
+    std::vector<float> mpos = {0.0f, 0.0f, 0.0f};  // Machine position
+    std::vector<float> wpos = {0.0f, 0.0f, 0.0f};  // Work position
+    float feedRate = 0.0f;
+    float spindleSpeed = 0.0f;
+    std::string coordinateSystem = "G54";
+    bool connected = false;
+};
 
 /**
  * Professional DRO panel supporting multiple machines
@@ -62,7 +72,6 @@ private:
     
     // Core references
     ConnectionManager* m_connectionManager;
-    StateManager& m_stateManager;
     
     // Current machine context
     std::string m_activeMachine;

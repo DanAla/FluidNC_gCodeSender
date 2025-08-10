@@ -17,8 +17,8 @@ BEGIN
     BEGIN
         BLOCK "040904E4"
         BEGIN
-            VALUE "CompanyName",        "FluidNC gCode Sender"
-            VALUE "FileDescription",   "Professional CNC Control Application"
+            VALUE "CompanyName",       "FluidNC gCode Sender"
+            VALUE "FileDescription",   "CNC Control Application"
             VALUE "FileVersion",       "1.0.0.0"
             VALUE "InternalName",      "FluidNC_gCodeSender"
             VALUE "LegalCopyright",    "Copyright (C) 2025"

@@ -6,19 +6,30 @@
 #include "MainFrame.h"
 #include "WelcomeDialog.h"
 #include "AboutDialog.h"
+#include "DROPanel.h"
+#include "JogPanel.h"
+#include "MachineManagerPanel.h"
+#include "ConsolePanel.h"
+#include "GCodeEditor.h"
+#include "MacroPanel.h"
+#include "SVGViewer.h"
+#include "SettingsPanel.h"
 #include "core/SimpleLogger.h"
 #include "core/Version.h"
 #include "core/BuildCounter.h"
+#include "core/ErrorHandler.h"
 #include <wx/msgdlg.h>
 #include <wx/menu.h>
 #include <wx/statusbr.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/panel.h>
+#include <wx/notebook.h>
 
 // Menu IDs
 enum {
     ID_SHOW_WELCOME = wxID_HIGHEST + 1,
+    ID_TEST_ERROR_HANDLER,
     // Window menu items
     ID_WINDOW_DRO,
     ID_WINDOW_JOG,
@@ -36,6 +47,7 @@ wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
     EVT_MENU(wxID_EXIT, MainFrame::OnExit)
     EVT_MENU(wxID_ABOUT, MainFrame::OnAbout)
     EVT_MENU(ID_SHOW_WELCOME, MainFrame::OnShowWelcome)
+    EVT_MENU(ID_TEST_ERROR_HANDLER, MainFrame::OnTestErrorHandler)
     // Window menu events
     EVT_MENU(ID_WINDOW_DRO, MainFrame::OnWindowDRO)
     EVT_MENU(ID_WINDOW_JOG, MainFrame::OnWindowJog)
@@ -62,34 +74,19 @@ MainFrame::MainFrame()
     SetStatusText("Disconnected", 2);
     SetStatusText("Position: ---", 3);
     
-    // Create a simple center panel
-    wxPanel* centerPanel = new wxPanel(this, wxID_ANY);
+    // Create all panels (simplified without AUI for now)
+    CreatePanels();
     
-    wxBoxSizer* sizer = new wxBoxSizer(wxVERTICAL);
+    // Set up the initial layout (simplified)
+    CreateDefaultLayout();
     
-    std::string welcomeMessage = std::string(FluidNC::Version::APP_NAME) + "\n\n" +
-                                "Professional CNC Control Application\n\n" +
-                                "Version " + FluidNC::Version::VERSION_STRING_STR + "\n" +
-                                "Built: " + FluidNC::Version::BUILD_INFO;
-    
-    wxStaticText* welcomeText = new wxStaticText(centerPanel, wxID_ANY, 
-        wxString::FromUTF8(welcomeMessage),
-        wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER);
-    
-    welcomeText->SetFont(welcomeText->GetFont().Scale(1.5));
-    
-    sizer->Add(welcomeText, 1, wxALL | wxEXPAND, 20);
-    centerPanel->SetSizer(sizer);
-    
-    // Use simple sizer layout
-    wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
-    mainSizer->Add(centerPanel, 1, wxEXPAND);
-    SetSizer(mainSizer);
+    // Update menu states
+    UpdateMenuItems();
 }
 
 MainFrame::~MainFrame()
 {
-    // Cleanup (AUI temporarily removed)
+    // Cleanup (simplified without AUI)
 }
 
 void MainFrame::CreateMenuBar()
@@ -120,6 +117,8 @@ void MainFrame::CreateMenuBar()
     // Help menu
     wxMenu* helpMenu = new wxMenu();
     helpMenu->Append(ID_SHOW_WELCOME, "Show &Welcome Dialog", "Show the welcome dialog again");
+    helpMenu->AppendSeparator();
+    helpMenu->Append(ID_TEST_ERROR_HANDLER, "&Test Error Handler", "Test the error handling system");
     helpMenu->AppendSeparator();
     helpMenu->Append(wxID_ABOUT, "&About\tF1", "Show about dialog");
     menuBar->Append(helpMenu, "&Help");
@@ -154,6 +153,51 @@ void MainFrame::OnShowWelcome(wxCommandEvent& WXUNUSED(event))
 {
     WelcomeDialog dialog(this);
     dialog.ShowModal();
+}
+
+void MainFrame::OnTestErrorHandler(wxCommandEvent& WXUNUSED(event))
+{
+    // Test different types of errors
+    wxString choice[] = {
+        "Test Error Dialog",
+        "Test Warning Dialog",
+        "Test Info Dialog",
+        "Test wxWidgets Assertion"
+    };
+    
+    wxSingleChoiceDialog dialog(this, "Choose error type to test:", "Error Handler Test", 4, choice);
+    
+    if (dialog.ShowModal() == wxID_OK) {
+        int selection = dialog.GetSelection();
+        
+        switch (selection) {
+            case 0:
+                ErrorHandler::Instance().ReportError(
+                    "Test Error", 
+                    "This is a test error message to demonstrate the error handling system.",
+                    "This error was triggered by the user through the Help menu.\n\nAll details are copyable and the application continues to run normally.");
+                break;
+                
+            case 1:
+                ErrorHandler::Instance().ReportWarning(
+                    "Test Warning", 
+                    "This is a test warning message.",
+                    "Warnings are used for non-critical issues that the user should be aware of.");
+                break;
+                
+            case 2:
+                ErrorHandler::Instance().ReportInfo(
+                    "Test Information", 
+                    "This is a test information message.",
+                    "Information messages provide helpful details to the user.");
+                break;
+                
+            case 3:
+                // This will trigger a wxWidgets assertion which our handler will catch
+                wxASSERT_MSG(false, "This is a test assertion to demonstrate assertion handling");
+                break;
+        }
+    }
 }
 
 void MainFrame::OnClose(wxCloseEvent& WXUNUSED(event))
@@ -260,4 +304,81 @@ void MainFrame::OnWindowResetLayout(wxCommandEvent& WXUNUSED(event)) {
     LOG_INFO("Window menu: Reset Layout");
     wxMessageBox("Reset Layout requested\n\nThis will reset all panels to their default positions when implemented.", 
                  "Reset Layout", wxOK | wxICON_INFORMATION, this);
+}
+
+// Missing method implementations
+void MainFrame::CreatePanels()
+{
+    // Initialize panel storage but don't create panels yet
+    // They will be created as children of the notebook in CreateDefaultLayout
+}
+
+void MainFrame::CreateDefaultLayout()
+{
+    // Simplified layout using notebook for now (without AUI)
+    wxNotebook* notebook = new wxNotebook(this, wxID_ANY);
+    
+    // Create panels with notebook as parent and add them to tabs
+    try {
+        // DROPanel needs ConnectionManager - use simplified version for now
+        wxPanel* droPanel = new DROPanel(notebook, nullptr); // nullptr for ConnectionManager
+        notebook->AddPage(droPanel, "Digital Readout");
+        
+        // JogPanel needs ConnectionManager
+        wxPanel* jogPanel = new JogPanel(notebook, nullptr); // nullptr for ConnectionManager
+        notebook->AddPage(jogPanel, "Jogging Controls");
+        
+        // MachineManagerPanel
+        wxPanel* machinePanel = new MachineManagerPanel(notebook);
+        notebook->AddPage(machinePanel, "Machine Manager");
+        
+        // ConsolePanel (our terminal)
+        wxPanel* consolePanel = new ConsolePanel(notebook);
+        notebook->AddPage(consolePanel, "Terminal Console");
+        
+        // GCodeEditor
+        wxPanel* gcodePanel = new GCodeEditor(notebook);
+        notebook->AddPage(gcodePanel, "G-code Editor");
+        
+        // MacroPanel
+        wxPanel* macroPanel = new MacroPanel(notebook);
+        notebook->AddPage(macroPanel, "Macros");
+        
+        // SVGViewer
+        wxPanel* svgPanel = new SVGViewer(notebook);
+        notebook->AddPage(svgPanel, "SVG Viewer");
+        
+    } catch (const std::exception& e) {
+        // If panel creation fails, show a simple error panel
+        wxPanel* errorPanel = new wxPanel(notebook, wxID_ANY);
+        wxStaticText* errorText = new wxStaticText(errorPanel, wxID_ANY, 
+            wxString::Format("Panel creation error: %s", e.what()));
+        wxBoxSizer* errorSizer = new wxBoxSizer(wxVERTICAL);
+        errorSizer->Add(errorText, 1, wxALL | wxCENTER, 20);
+        errorPanel->SetSizer(errorSizer);
+        notebook->AddPage(errorPanel, "Error");
+    }
+    
+    // Use simple sizer
+    wxBoxSizer* sizer = new wxBoxSizer(wxVERTICAL);
+    sizer->Add(notebook, 1, wxEXPAND | wxALL, 5);
+    SetSizer(sizer);
+}
+
+void MainFrame::UpdateMenuItems()
+{
+    // Update menu item check states based on panel visibility
+    wxMenuBar* menuBar = GetMenuBar();
+    if (menuBar) {
+        // For now, just set all panels as visible
+        // TODO: Update based on actual panel visibility when implemented
+        menuBar->Check(ID_WINDOW_DRO, true);
+        menuBar->Check(ID_WINDOW_JOG, true);
+        menuBar->Check(ID_WINDOW_MACHINE_MANAGER, true);
+        menuBar->Check(ID_WINDOW_GCODE_EDITOR, true);
+        menuBar->Check(ID_WINDOW_CONSOLE, true);
+        menuBar->Check(ID_WINDOW_MACRO, true);
+        menuBar->Check(ID_WINDOW_SVG_VIEWER, true);
+        menuBar->Check(ID_WINDOW_SETTINGS, false); // Hidden by default
+    }
 }

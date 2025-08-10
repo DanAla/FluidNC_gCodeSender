@@ -7,8 +7,6 @@
 #pragma once
 
 #include <wx/wx.h>
-// #include <wx/aui/aui.h>
-// #include <wx/aui/framemanager.h>
 #include <wx/statusbr.h>
 #include <wx/toolbar.h>
 #include <memory>
@@ -106,6 +104,7 @@ private:
     void OnSettings(wxCommandEvent& event);
     void OnTogglePanel(wxCommandEvent& event);
     void OnResetLayout(wxCommandEvent& event);
+    void OnTestErrorHandler(wxCommandEvent& event);
     
     // Toolbar handlers
     void OnToolbarConnect(wxCommandEvent& event);
@@ -142,13 +141,11 @@ private:
     // StateManager& m_stateManager;
     // std::unique_ptr<ConnectionManager> m_connectionManager;
     
-    // UI Management (AUI temporarily disabled)
-    // wxAuiManager m_auiManager;
-    
-    // Toolbars (AUI temporarily disabled)
-    // wxAuiToolBar* m_mainToolbar;
-    // wxAuiToolBar* m_machineToolbar;
-    // wxAuiToolBar* m_fileToolbar;
+    // UI Management (simplified without AUI)
+    // Toolbars (temporarily disabled)
+    // wxToolBar* m_mainToolbar;
+    // wxToolBar* m_machineToolbar;
+    // wxToolBar* m_fileToolbar;
     
     // Status bar
     wxStatusBar* m_statusBar;
