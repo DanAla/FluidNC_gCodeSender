@@ -269,7 +269,7 @@ void ErrorDialog::CreateControls(const wxString& message, const wxString& detail
     // Buttons
     wxBoxSizer* buttonSizer = new wxBoxSizer(wxHORIZONTAL);
     
-    wxButton* copyBtn = new wxButton(this, ID_COPY_TO_CLIPBOARD, "Copy to Clipboard");
+    wxButton* copyBtn = new wxButton(this, ID_COPY_TO_CLIPBOARD, "Copy && Close");
     wxButton* okBtn = new wxButton(this, wxID_OK, "OK");
     okBtn->SetDefault();
     
@@ -297,28 +297,26 @@ void ErrorDialog::OnCopyToClipboard(wxCommandEvent& WXUNUSED(event))
         wxTheClipboard->SetData(new wxTextDataObject(m_fullErrorText));
         wxTheClipboard->Close();
         
-        // Change button text to show confirmation
+        // Change button text to show confirmation and prepare to close
         wxButton* copyBtn = wxDynamicCast(FindWindow(ID_COPY_TO_CLIPBOARD), wxButton);
         if (copyBtn) {
-            wxString originalText = copyBtn->GetLabel();
-            copyBtn->SetLabel("✓ Copied!");
+            copyBtn->SetLabel("Copied, closing...");
             copyBtn->SetBackgroundColour(wxColour(40, 167, 69)); // Green background
             copyBtn->SetForegroundColour(*wxWHITE);
+            copyBtn->Enable(false); // Disable to prevent multiple clicks
             copyBtn->Refresh();
             
-            // Reset button after 2 seconds
+            // Close dialog after 1 second
             wxTimer* timer = new wxTimer();
-            timer->Bind(wxEVT_TIMER, [copyBtn, originalText, timer](wxTimerEvent&) {
-                if (copyBtn && copyBtn->GetParent()) {
-                    copyBtn->SetLabel(originalText);
-                    copyBtn->SetBackgroundColour(wxNullColour);
-                    copyBtn->SetForegroundColour(wxNullColour);
-                    copyBtn->Refresh();
-                }
+            timer->Bind(wxEVT_TIMER, [this, timer](wxTimerEvent&) {
                 delete timer;
+                EndModal(wxID_OK);
             });
-            timer->StartOnce(2000); // 2 seconds
+            timer->StartOnce(1000); // 1 second
         }
+    } else {
+        // If clipboard failed, just close normally
+        EndModal(wxID_OK);
     }
 }
 
