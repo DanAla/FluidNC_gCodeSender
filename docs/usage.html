@@ -109,6 +109,18 @@
             margin-top: 20px;
             text-align: center;
         }
+        .privacy-notice {
+            background: #1a7f37;
+            border: 1px solid #2ea043;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .privacy-notice.full-mode {
+            background: #da3633;
+            border: 1px solid #f85149;
+        }
     </style>
 </head>
 <body>
@@ -123,6 +135,10 @@
     </div>
 
     <div id="status" class="loading">Loading analytics data...</div>
+    
+    <div id="privacy-notice" class="privacy-notice">
+        <!-- Privacy notice will be populated by JavaScript -->
+    </div>
 
     <div class="stats-grid">
         <div class="stat-card">
@@ -171,6 +187,47 @@
         // Analytics data storage (simulated - in real implementation this would come from GitHub API or JSON files)
         let analyticsData = [];
         let currentVersion = 'v0.0.4';
+        
+        // Check URL parameters for full IP display
+        const urlParams = new URLSearchParams(window.location.search);
+        const showFullIPs = urlParams.get('option') === 'full';
+        
+        // Update privacy notice based on mode
+        function updatePrivacyNotice() {
+            const notice = document.getElementById('privacy-notice');
+            if (showFullIPs) {
+                notice.className = 'privacy-notice full-mode';
+                notice.innerHTML = `
+                    <strong>🔓 FULL MODE ACTIVE</strong><br>
+                    Complete IP addresses are visible. This mode is intended for developers only.<br>
+                    <small><a href="usage.html" style="color: white; text-decoration: underline;">Switch to Privacy Mode</a></small>
+                `;
+            } else {
+                notice.className = 'privacy-notice';
+                notice.innerHTML = `
+                    <strong>🔒 PRIVACY MODE</strong><br>
+                    IP addresses are masked to protect user privacy (192.***.***.*** format).<br>
+                    <small>Only first octet is shown for security reasons.</small>
+                `;
+            }
+        }
+        
+        // Function to mask IP addresses for privacy
+        function maskIP(ip) {
+            if (showFullIPs) {
+                return ip;
+            }
+            
+            // Mask different IP formats
+            if (ip.includes(':')) {
+                // IPv6 - show first segment only
+                return ip.split(':')[0] + ':****:****:****';
+            } else {
+                // IPv4 - show first segment only
+                const parts = ip.split('.');
+                return parts[0] + '.***.***.***';
+            }
+        }
 
         // Load analytics data
         async function loadAnalytics() {
@@ -197,6 +254,22 @@
                     version: 'v0.0.3',
                     os: 'Windows 10',
                     country: 'US'
+                },
+                {
+                    ip: '10.0.0.50',
+                    starts: 12,
+                    lastSeen: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+                    version: 'v0.0.4',
+                    os: 'Windows 11',
+                    country: 'CA'
+                },
+                {
+                    ip: '203.0.113.45',
+                    starts: 3,
+                    lastSeen: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+                    version: 'v0.0.4',
+                    os: 'Ubuntu 22.04',
+                    country: 'GB'
                 }
             ];
         }
@@ -221,7 +294,7 @@
             const tbody = document.getElementById('analytics-data');
             tbody.innerHTML = analyticsData.map(user => `
                 <tr>
-                    <td><code>${user.ip}</code></td>
+                    <td><code>${maskIP(user.ip)}</code></td>
                     <td><strong>${user.starts}</strong></td>
                     <td>${new Date(user.lastSeen).toLocaleString()}</td>
                     <td><span class="version-badge">${user.version}</span></td>
@@ -251,6 +324,7 @@
         }
 
         // Initialize
+        updatePrivacyNotice();
         loadAnalytics();
 
         // Auto-refresh every 5 minutes
