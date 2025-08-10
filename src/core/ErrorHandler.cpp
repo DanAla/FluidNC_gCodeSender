@@ -271,7 +271,7 @@ void ErrorDialog::CreateControls(const wxString& message, const wxString& detail
     
     wxButton* copyBtn = new wxButton(this, ID_COPY_TO_CLIPBOARD, "Copy && Close");
     // Make the copy button wider to accommodate larger confirmation text
-    copyBtn->SetMinSize(wxSize(140, -1));
+    copyBtn->SetMinSize(wxSize(240, -1));
     
     wxButton* okBtn = new wxButton(this, wxID_OK, "OK");
     okBtn->SetDefault();
