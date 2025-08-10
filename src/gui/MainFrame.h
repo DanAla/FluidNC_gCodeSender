@@ -84,6 +84,17 @@ private:
     void OnAbout(wxCommandEvent& event);
     void OnShowWelcome(wxCommandEvent& event);
     void OnClose(wxCloseEvent& event);
+    
+    // Window menu event handlers
+    void OnWindowDRO(wxCommandEvent& event);
+    void OnWindowJog(wxCommandEvent& event);
+    void OnWindowSettings(wxCommandEvent& event);
+    void OnWindowMachineManager(wxCommandEvent& event);
+    void OnWindowSVGViewer(wxCommandEvent& event);
+    void OnWindowGCodeEditor(wxCommandEvent& event);
+    void OnWindowMacro(wxCommandEvent& event);
+    void OnWindowConsole(wxCommandEvent& event);
+    void OnWindowResetLayout(wxCommandEvent& event);
     void OnSize(wxSizeEvent& event);
     
     // Menu handlers
