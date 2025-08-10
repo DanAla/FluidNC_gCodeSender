@@ -232,8 +232,8 @@
                 notice.className = 'privacy-notice';
                 notice.innerHTML = `
                     <strong>🔒 PRIVACY MODE</strong><br>
-                    IP addresses are masked to protect user privacy (192.***.***.*** format).<br>
-                    <small>Only first octet is shown for security reasons.</small>
+                    IP addresses are masked to protect user privacy (***.***.***.100 format).<br>
+                    <small>Only last octet is shown for device identification within networks.</small>
                 `;
             }
         }
@@ -246,12 +246,13 @@
             
             // Mask different IP formats
             if (ip.includes(':')) {
-                // IPv6 - show first segment only
-                return ip.split(':')[0] + ':****:****:****';
+                // IPv6 - show last segment only
+                const parts = ip.split(':');
+                return '****:****:****:' + parts[parts.length - 1];
             } else {
-                // IPv4 - show first segment only
+                // IPv4 - show last octet only
                 const parts = ip.split('.');
-                return parts[0] + '.***.***.***';
+                return '***.***.***.'+parts[parts.length - 1];
             }
         }
 
