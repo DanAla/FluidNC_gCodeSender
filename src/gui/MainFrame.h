@@ -7,6 +7,7 @@
 #pragma once
 
 #include <wx/wx.h>
+#include <wx/aui/aui.h>
 #include <wx/statusbr.h>
 #include <wx/toolbar.h>
 #include <memory>
@@ -113,9 +114,8 @@ private:
     void OnToolbarHome(wxCommandEvent& event);
     void OnToolbarJog(wxCommandEvent& event);
     
-    // AUI handlers (temporarily disabled)
-    // void OnPaneClose(wxAuiManagerEvent& event);
-    // void OnPaneRestore(wxAuiManagerEvent& event);
+    // Layout handlers
+    // TODO: Re-add AUI handlers when AUI is enabled
     
     // UI Creation
     void CreateMenuBar();
@@ -141,11 +141,13 @@ private:
     // StateManager& m_stateManager;
     // std::unique_ptr<ConnectionManager> m_connectionManager;
     
-    // UI Management (simplified without AUI)
-    // Toolbars (temporarily disabled)
-    // wxToolBar* m_mainToolbar;
-    // wxToolBar* m_machineToolbar;
-    // wxToolBar* m_fileToolbar;
+    // AUI Manager for docking
+    wxAuiManager m_auiManager;
+    
+    // Toolbars
+    wxToolBar* m_mainToolbar;
+    wxToolBar* m_machineToolbar;
+    wxToolBar* m_fileToolbar;
     
     // Status bar
     wxStatusBar* m_statusBar;

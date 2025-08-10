@@ -25,8 +25,6 @@
 #include <wx/stattext.h>
 #include <wx/panel.h>
 #include <wx/notebook.h>
-#include <wx/artprov.h>
-#include "NotificationSystem.h"
 
 // Menu IDs
 enum {
@@ -65,51 +63,28 @@ wxEND_EVENT_TABLE()
 
 MainFrame::MainFrame()
     : wxFrame(nullptr, wxID_ANY, FluidNC::Version::GetFullVersionString(), wxDefaultPosition, wxSize(1200, 800))
-    , m_mainToolbar(nullptr)
-    , m_machineToolbar(nullptr) 
-    , m_fileToolbar(nullptr)
+    , m_notebook(nullptr)
 {
-    // Initialize AUI manager
-    m_auiManager.SetManagedWindow(this);
-    
     // Create menu bar
     CreateMenuBar();
     
-    // Create toolbars
-    CreateToolBars();
-    
     // Create status bar
-    CreateStatusBar();
+    wxFrame::CreateStatusBar(4);
+    SetStatusText("Ready", 0);
+    SetStatusText("No machine connected", 1);
+    SetStatusText("Disconnected", 2);
+    SetStatusText("Position: ---", 3);
     
-    // Create panels and setup AUI layout
+    // Create notebook-based layout
     CreatePanels();
-    SetupAuiManager();
-    
-    // Create default layout
-    CreateDefaultLayout();
     
     // Update menu states
     UpdateMenuItems();
-    
-    // Commit all AUI changes
-    m_auiManager.Update();
-    
-    // Initialize notification system
-    NotificationSystem::Instance().SetParentWindow(this);
-    
-    // Show welcome notification
-    NOTIFY_SUCCESS("Application Started", "FluidNC gCode Sender is ready to use!");
-    
-    // Demo the notification system after a short delay
-    CallAfter([this]() {
-        NOTIFY_INFO("Interface Updated", "AUI docking interface is now active. Drag panels to rearrange.");
-    });
 }
 
 MainFrame::~MainFrame()
 {
-    // Properly uninitialize AUI manager
-    m_auiManager.UnInit();
+    // No special cleanup needed for notebook
 }
 
 void MainFrame::CreateMenuBar()
@@ -223,71 +198,66 @@ void MainFrame::OnClose(wxCloseEvent& WXUNUSED(event))
     Destroy();
 }
 
-// AUI-based panel management implementations
+// Panel management implementations (simplified for notebook)
 void MainFrame::ShowPanel(PanelID panelId, bool show) {
     PanelInfo* panelInfo = FindPanelInfo(panelId);
-    if (panelInfo) {
-        wxAuiPaneInfo& pane = m_auiManager.GetPane(panelInfo->name);
-        if (pane.IsOk()) {
-            if (show && !pane.IsShown()) {
-                pane.Show(true);
-                m_auiManager.Update();
-            } else if (!show && pane.IsShown()) {
-                pane.Show(false);
-                m_auiManager.Update();
+    if (panelInfo && m_notebook) {
+        // Find the page in the notebook
+        for (size_t i = 0; i < m_notebook->GetPageCount(); ++i) {
+            if (m_notebook->GetPage(i) == panelInfo->panel) {
+                if (show) {
+                    m_notebook->SetSelection(i);
+                } 
+                // For notebook, we can't really hide individual pages
+                // but we could remove/add them dynamically if needed
+                UpdateMenuItems();
+                return;
             }
-        } else if (show) {
-            // Panel not in AUI manager, add it
-            AddPanelToAui(*panelInfo);
-            m_auiManager.Update();
         }
-        UpdateMenuItems();
+        
+        // If showing and not found, add it
+        if (show) {
+            m_notebook->AddPage(panelInfo->panel, panelInfo->title, true);
+            UpdateMenuItems();
+        }
     }
 }
 
 void MainFrame::TogglePanelVisibility(PanelID panelId) {
-    bool isVisible = IsPanelVisible(panelId);
-    ShowPanel(panelId, !isVisible);
+    // For notebook, just switch to the panel
+    ShowPanel(panelId, true);
 }
 
 bool MainFrame::IsPanelVisible(PanelID panelId) const {
     PanelInfo* panelInfo = const_cast<MainFrame*>(this)->FindPanelInfo(panelId);
-    if (panelInfo) {
-        wxAuiPaneInfo& pane = const_cast<MainFrame*>(this)->m_auiManager.GetPane(panelInfo->name);
-        if (pane.IsOk()) {
-            return pane.IsShown();
+    if (panelInfo && m_notebook) {
+        // Check if panel is in notebook
+        for (size_t i = 0; i < m_notebook->GetPageCount(); ++i) {
+            if (m_notebook->GetPage(i) == panelInfo->panel) {
+                return true;
+            }
         }
     }
     return false;
 }
 
 void MainFrame::ResetLayout() {
-    // Reset all panels to their default positions
-    m_auiManager.DetachPane(this); // Clear all panes
-    
-    // Re-add all default visible panels
-    for (auto& panelInfo : m_panels) {
-        if (panelInfo.defaultVisible) {
-            AddPanelToAui(panelInfo);
+    // For notebook, just reset to default tab order
+    if (m_notebook) {
+        int currentSelection = m_notebook->GetSelection();
+        if (currentSelection != 0 && m_notebook->GetPageCount() > 0) {
+            m_notebook->SetSelection(0);
         }
     }
-    
-    m_auiManager.Update();
     UpdateMenuItems();
 }
 
 void MainFrame::SaveCurrentLayout() {
-    // TODO: Save AUI perspective to config
-    // wxString perspective = m_auiManager.SavePerspective();
-    // StateManager::SavePerspective(perspective);
+    // Simplified - no state saving for now
 }
 
 void MainFrame::LoadSavedLayout() {
-    // TODO: Load AUI perspective from config
-    // wxString perspective = StateManager::LoadPerspective();
-    // if (!perspective.IsEmpty()) {
-    //     m_auiManager.LoadPerspective(perspective, true);
-    // }
+    // Simplified - no state loading for now
 }
 
 void MainFrame::UpdateMachineStatus(const std::string& machineId, const std::string& status) {
@@ -306,13 +276,13 @@ void MainFrame::UpdateDRO(const std::string& machineId, const std::vector<float>
 
 // Window menu event handlers
 void MainFrame::OnWindowDRO(wxCommandEvent& WXUNUSED(event)) {
-    LOG_INFO("Window menu: Toggle DRO Panel");
-    TogglePanelVisibility(PANEL_DRO);
+    LOG_INFO("Window menu: Show DRO Panel");
+    ShowPanel(PANEL_DRO, true);
 }
 
 void MainFrame::OnWindowJog(wxCommandEvent& WXUNUSED(event)) {
-    LOG_INFO("Window menu: Toggle Jogging Panel");
-    TogglePanelVisibility(PANEL_JOG);
+    LOG_INFO("Window menu: Show Jogging Panel");
+    ShowPanel(PANEL_JOG, true);
 }
 
 void MainFrame::OnWindowSettings(wxCommandEvent& WXUNUSED(event)) {
@@ -329,28 +299,28 @@ void MainFrame::OnWindowSettings(wxCommandEvent& WXUNUSED(event)) {
 }
 
 void MainFrame::OnWindowMachineManager(wxCommandEvent& WXUNUSED(event)) {
-    LOG_INFO("Window menu: Toggle Machine Manager Panel");
-    TogglePanelVisibility(PANEL_MACHINE_MANAGER);
+    LOG_INFO("Window menu: Show Machine Manager Panel");
+    ShowPanel(PANEL_MACHINE_MANAGER, true);
 }
 
 void MainFrame::OnWindowSVGViewer(wxCommandEvent& WXUNUSED(event)) {
-    LOG_INFO("Window menu: Toggle SVG Viewer Panel");
-    TogglePanelVisibility(PANEL_SVG_VIEWER);
+    LOG_INFO("Window menu: Show SVG Viewer Panel");
+    ShowPanel(PANEL_SVG_VIEWER, true);
 }
 
 void MainFrame::OnWindowGCodeEditor(wxCommandEvent& WXUNUSED(event)) {
-    LOG_INFO("Window menu: Toggle G-code Editor Panel");
-    TogglePanelVisibility(PANEL_GCODE_EDITOR);
+    LOG_INFO("Window menu: Show G-code Editor Panel");
+    ShowPanel(PANEL_GCODE_EDITOR, true);
 }
 
 void MainFrame::OnWindowMacro(wxCommandEvent& WXUNUSED(event)) {
-    LOG_INFO("Window menu: Toggle Macro Panel");
-    TogglePanelVisibility(PANEL_MACRO);
+    LOG_INFO("Window menu: Show Macro Panel");
+    ShowPanel(PANEL_MACRO, true);
 }
 
 void MainFrame::OnWindowConsole(wxCommandEvent& WXUNUSED(event)) {
-    LOG_INFO("Window menu: Toggle Console Panel");
-    TogglePanelVisibility(PANEL_CONSOLE);
+    LOG_INFO("Window menu: Show Console Panel");
+    ShowPanel(PANEL_CONSOLE, true);
 }
 
 void MainFrame::OnWindowResetLayout(wxCommandEvent& WXUNUSED(event)) {
@@ -369,112 +339,107 @@ void MainFrame::SaveWindowGeometry()
     // Simplified - no state saving for now
 }
 
-// AUI-based panel creation
+// Notebook-based panel creation
 void MainFrame::CreatePanels()
 {
+    // Create main notebook
+    m_notebook = new wxNotebook(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxNB_TOP);
+    
     // Clear any existing panels
     m_panels.clear();
     
     try {
-        // Create panels as direct children of the main frame
+        // Create panels as children of the notebook
         
-        // G-Code Editor - center panel
+        // G-Code Editor - first tab
         PanelInfo gcodeInfo;
         gcodeInfo.id = PANEL_GCODE_EDITOR;
         gcodeInfo.name = "gcode_editor";
         gcodeInfo.title = "G-code Editor";
-        gcodeInfo.panel = new GCodeEditor(this);
+        gcodeInfo.panel = new GCodeEditor(m_notebook);
         gcodeInfo.defaultVisible = true;
-        gcodeInfo.defaultPosition = "center";
-        gcodeInfo.defaultSize = wxSize(600, 400);
         m_panels.push_back(gcodeInfo);
+        m_notebook->AddPage(gcodeInfo.panel, gcodeInfo.title, true);
         
-        // DRO Panel - left docking area
+        // DRO Panel - second tab
         PanelInfo droInfo;
         droInfo.id = PANEL_DRO;
         droInfo.name = "dro";
         droInfo.title = "Digital Readout";
-        droInfo.panel = new DROPanel(this, nullptr); // nullptr for ConnectionManager
+        droInfo.panel = new DROPanel(m_notebook, nullptr); // nullptr for ConnectionManager
         droInfo.defaultVisible = true;
-        droInfo.defaultPosition = "left";
-        droInfo.defaultSize = wxSize(250, 200);
         m_panels.push_back(droInfo);
+        m_notebook->AddPage(droInfo.panel, droInfo.title);
         
-        // Jog Panel - left docking area (below DRO)
+        // Jog Panel - third tab
         PanelInfo jogInfo;
         jogInfo.id = PANEL_JOG;
         jogInfo.name = "jog";
         jogInfo.title = "Jogging Controls";
-        jogInfo.panel = new JogPanel(this, nullptr); // nullptr for ConnectionManager
+        jogInfo.panel = new JogPanel(m_notebook, nullptr); // nullptr for ConnectionManager
         jogInfo.defaultVisible = true;
-        jogInfo.defaultPosition = "left";
-        jogInfo.defaultSize = wxSize(250, 300);
         m_panels.push_back(jogInfo);
+        m_notebook->AddPage(jogInfo.panel, jogInfo.title);
         
-        // Console Panel - bottom docking area
+        // Console Panel
         PanelInfo consoleInfo;
         consoleInfo.id = PANEL_CONSOLE;
         consoleInfo.name = "console";
         consoleInfo.title = "Terminal Console";
-        consoleInfo.panel = new ConsolePanel(this);
+        consoleInfo.panel = new ConsolePanel(m_notebook);
         consoleInfo.defaultVisible = true;
-        consoleInfo.defaultPosition = "bottom";
-        consoleInfo.defaultSize = wxSize(800, 150);
         m_panels.push_back(consoleInfo);
+        m_notebook->AddPage(consoleInfo.panel, consoleInfo.title);
         
-        // Machine Manager Panel - right docking area
+        // Machine Manager Panel
         PanelInfo machineInfo;
         machineInfo.id = PANEL_MACHINE_MANAGER;
         machineInfo.name = "machine_manager";
         machineInfo.title = "Machine Manager";
-        machineInfo.panel = new MachineManagerPanel(this);
+        machineInfo.panel = new MachineManagerPanel(m_notebook);
         machineInfo.defaultVisible = true;
-        machineInfo.defaultPosition = "right";
-        machineInfo.defaultSize = wxSize(300, 400);
         m_panels.push_back(machineInfo);
+        m_notebook->AddPage(machineInfo.panel, machineInfo.title);
         
-        // Macro Panel - right docking area (below machine manager)
+        // Macro Panel
         PanelInfo macroInfo;
         macroInfo.id = PANEL_MACRO;
         macroInfo.name = "macro";
         macroInfo.title = "Macro Panel";
-        macroInfo.panel = new MacroPanel(this);
+        macroInfo.panel = new MacroPanel(m_notebook);
         macroInfo.defaultVisible = true;
-        macroInfo.defaultPosition = "right";
-        macroInfo.defaultSize = wxSize(300, 200);
         m_panels.push_back(macroInfo);
+        m_notebook->AddPage(macroInfo.panel, macroInfo.title);
         
-        // SVG Viewer - initially hidden, will be center when shown
+        // SVG Viewer - initially hidden
         PanelInfo svgInfo;
         svgInfo.id = PANEL_SVG_VIEWER;
         svgInfo.name = "svg_viewer";
         svgInfo.title = "SVG Viewer";
-        svgInfo.panel = new SVGViewer(this);
+        svgInfo.panel = new SVGViewer(m_notebook);
         svgInfo.defaultVisible = false;
-        svgInfo.defaultPosition = "center";
-        svgInfo.defaultSize = wxSize(400, 400);
         m_panels.push_back(svgInfo);
+        // Don't add to notebook initially since it's hidden by default
         
     } catch (const std::exception& e) {
         // If panel creation fails, create a single error panel
-        wxPanel* errorPanel = new wxPanel(this, wxID_ANY);
+        wxPanel* errorPanel = new wxPanel(m_notebook, wxID_ANY);
         wxStaticText* errorText = new wxStaticText(errorPanel, wxID_ANY, 
             wxString::Format("Panel creation error: %s\n\nThe application will still run with limited functionality.", e.what()));
         wxBoxSizer* errorSizer = new wxBoxSizer(wxVERTICAL);
         errorSizer->Add(errorText, 1, wxALL | wxCENTER, 20);
         errorPanel->SetSizer(errorSizer);
         
-        // Create minimal panel info for error panel
-        PanelInfo errorInfo;
-        errorInfo.id = PANEL_GCODE_EDITOR; // Use existing ID
-        errorInfo.name = "error";
-        errorInfo.title = "Error";
-        errorInfo.panel = errorPanel;
-        errorInfo.defaultVisible = true;
-        errorInfo.defaultPosition = "center";
+        m_notebook->AddPage(errorPanel, "Error");
         m_panels.clear();
-        m_panels.push_back(errorInfo);
     }
+    
+    // Set notebook as the main content
+    wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
+    mainSizer->Add(m_notebook, 1, wxEXPAND);
+    SetSizer(mainSizer);
+    
+    Layout();
 }
 
 PanelInfo* MainFrame::FindPanelInfo(PanelID id)
@@ -515,90 +480,11 @@ void MainFrame::UpdateMenuItems()
     }
 }
 
-// Create toolbars
-void MainFrame::CreateToolBars()
-{
-    // Create simple bitmaps for toolbar icons
-    wxBitmap newBitmap = wxArtProvider::GetBitmap(wxART_NEW, wxART_TOOLBAR, wxSize(16, 16));
-    wxBitmap openBitmap = wxArtProvider::GetBitmap(wxART_FILE_OPEN, wxART_TOOLBAR, wxSize(16, 16));
-    wxBitmap saveBitmap = wxArtProvider::GetBitmap(wxART_FILE_SAVE, wxART_TOOLBAR, wxSize(16, 16));
-    
-    // Main toolbar with common actions
-    m_mainToolbar = CreateToolBar(wxTB_HORIZONTAL | wxTB_TEXT | wxTB_FLAT, wxID_ANY, "Main Toolbar");
-    m_mainToolbar->SetToolBitmapSize(wxSize(16, 16));
-    
-    // Add basic toolbar items with proper bitmaps
-    m_mainToolbar->AddTool(wxID_NEW, "New", newBitmap, "New file");
-    m_mainToolbar->AddTool(wxID_OPEN, "Open", openBitmap, "Open file");
-    m_mainToolbar->AddTool(wxID_SAVE, "Save", saveBitmap, "Save file");
-    m_mainToolbar->AddSeparator();
-    
-    m_mainToolbar->Realize();
+// Dummy implementations for compatibility
+void MainFrame::CreateDefaultLayout() {
+    // Already handled in CreatePanels
 }
 
-// Create status bar
-void MainFrame::CreateStatusBar()
-{
-    m_statusBar = wxFrame::CreateStatusBar(STATUS_COUNT);
-    
-    // Set status bar field widths
-    int widths[STATUS_COUNT] = { -1, 150, 100, 200 }; // Main field auto-sizes
-    m_statusBar->SetStatusWidths(STATUS_COUNT, widths);
-    
-    // Set initial status
-    SetStatusText("Ready", STATUS_MAIN);
-    SetStatusText("No machine", STATUS_MACHINE);
-    SetStatusText("Disconnected", STATUS_CONNECTION);
-    SetStatusText("Position: ---", STATUS_POSITION);
-}
-
-// Setup AUI manager and add panels
-void MainFrame::SetupAuiManager()
-{
-    // Add all panels to AUI manager
-    for (auto& panelInfo : m_panels) {
-        if (panelInfo.defaultVisible) {
-            AddPanelToAui(panelInfo);
-        }
-    }
-}
-
-// Create default AUI layout
-void MainFrame::CreateDefaultLayout()
-{
-    // This will be called after all panels are added to AUI
-    // The AUI manager will automatically arrange them based on
-    // the positions specified in AddPanelToAui
-}
-
-// Add a panel to the AUI manager
-void MainFrame::AddPanelToAui(PanelInfo& panelInfo)
-{
-    wxAuiPaneInfo paneInfo;
-    paneInfo.Name(panelInfo.name)
-           .Caption(panelInfo.title)
-           .BestSize(panelInfo.defaultSize)
-           .MinSize(wxSize(200, 150))
-           .CloseButton(panelInfo.canClose)
-           .MaximizeButton(true)
-           .MinimizeButton(false)
-           .PinButton(true)
-           .Dock()
-           .Resizable(true)
-           .FloatingSize(panelInfo.defaultSize);
-    
-    // Set docking position
-    if (panelInfo.defaultPosition == "left") {
-        paneInfo.Left().Layer(1);
-    } else if (panelInfo.defaultPosition == "right") {
-        paneInfo.Right().Layer(1);
-    } else if (panelInfo.defaultPosition == "top") {
-        paneInfo.Top().Layer(1);
-    } else if (panelInfo.defaultPosition == "bottom") {
-        paneInfo.Bottom().Layer(1);
-    } else { // center
-        paneInfo.Center().Layer(0);
-    }
-    
-    m_auiManager.AddPane(panelInfo.panel, paneInfo);
+void MainFrame::AddPanelToAui(PanelInfo& panelInfo) {
+    // Not used in notebook version
 }

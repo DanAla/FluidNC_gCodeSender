@@ -34,9 +34,17 @@ std::string GetBuildInfoString() {
     oss << "Git Version: " << DESCRIBE << "\n";
     oss << BuildCounter::GetBuildCountString() << "\n";
     oss << "Platform: " << PLATFORM << " " << ARCHITECTURE << "\n";
-    oss << "Compiler: " << COMPILER << "\n";
+    oss << "Compiler: " << COMPILER << " " << GCC_VERSION << "\n";
     oss << "Commit: " << COMMIT_HASH << "\n";
-    oss << "Branch: " << BRANCH;
+    oss << "Branch: " << BRANCH << "\n\n";
+    
+    // Dependency versions
+    oss << "Dependencies:\n";
+    oss << "• wxWidgets: " << WXWIDGETS_VER << "\n";
+    oss << "• nlohmann/json: " << JSON_VER << "\n";
+    oss << "• CMake: " << CMAKE_VER << "\n";
+    oss << "• MinGW Target: " << MINGW_ARCH << "\n";
+    oss << "• C++ Standard: 17";
     
     return oss.str();
 }

@@ -61,11 +61,37 @@ constexpr const char* ISSUES_URL = "https://github.com/DanAla/FluidNC_gCodeSende
 #endif
 #endif
 
+// Dependency versions (populated by CMake)
+#ifndef COMPILER_VERSION
+#define COMPILER_VERSION "unknown"
+#endif
+
+#ifndef CMAKE_VERSION_STRING
+#define CMAKE_VERSION_STRING "unknown"
+#endif
+
+#ifndef WXWIDGETS_VERSION
+#define WXWIDGETS_VERSION "unknown"
+#endif
+
+#ifndef NLOHMANN_JSON_VERSION
+#define NLOHMANN_JSON_VERSION "unknown"
+#endif
+
+#ifndef MINGW_TARGET
+#define MINGW_TARGET "unknown"
+#endif
+
 constexpr const char* BUILD_INFO = BUILD_TIMESTAMP;
 constexpr const char* COMMIT_HASH = GIT_COMMIT_HASH;
 constexpr const char* BRANCH = GIT_BRANCH;
 constexpr const char* DESCRIBE = GIT_DESCRIBE;
 constexpr const char* BUILD_CONFIG = BUILD_TYPE;
+constexpr const char* GCC_VERSION = COMPILER_VERSION;
+constexpr const char* CMAKE_VER = CMAKE_VERSION_STRING;
+constexpr const char* WXWIDGETS_VER = WXWIDGETS_VERSION;
+constexpr const char* JSON_VER = NLOHMANN_JSON_VERSION;
+constexpr const char* MINGW_ARCH = MINGW_TARGET;
 
 // Platform information
 #ifdef _WIN32
