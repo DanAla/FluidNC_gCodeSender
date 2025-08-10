@@ -1,3 +1,3 @@
 # FluidNC_gCodeSender
-## Please checkout comprehensive content at
+## Please find comprehensive content at
 ### https://danala.github.io/FluidNC_gCodeSender/
