@@ -12,6 +12,7 @@
 #include <wx/statbmp.h>
 #include <wx/artprov.h>
 #include <wx/utils.h>
+#include <wx/timer.h>
 
 // Control IDs for ErrorDialog
 enum {
@@ -296,9 +297,28 @@ void ErrorDialog::OnCopyToClipboard(wxCommandEvent& WXUNUSED(event))
         wxTheClipboard->SetData(new wxTextDataObject(m_fullErrorText));
         wxTheClipboard->Close();
         
-        // Show brief confirmation
-        wxMessageBox("Error details copied to clipboard", "Copied", 
-                    wxOK | wxICON_INFORMATION, this);
+        // Change button text to show confirmation
+        wxButton* copyBtn = wxDynamicCast(FindWindow(ID_COPY_TO_CLIPBOARD), wxButton);
+        if (copyBtn) {
+            wxString originalText = copyBtn->GetLabel();
+            copyBtn->SetLabel("✓ Copied!");
+            copyBtn->SetBackgroundColour(wxColour(40, 167, 69)); // Green background
+            copyBtn->SetForegroundColour(*wxWHITE);
+            copyBtn->Refresh();
+            
+            // Reset button after 2 seconds
+            wxTimer* timer = new wxTimer();
+            timer->Bind(wxEVT_TIMER, [copyBtn, originalText, timer](wxTimerEvent&) {
+                if (copyBtn && copyBtn->GetParent()) {
+                    copyBtn->SetLabel(originalText);
+                    copyBtn->SetBackgroundColour(wxNullColour);
+                    copyBtn->SetForegroundColour(wxNullColour);
+                    copyBtn->Refresh();
+                }
+                delete timer;
+            });
+            timer->StartOnce(2000); // 2 seconds
+        }
     }
 }
 

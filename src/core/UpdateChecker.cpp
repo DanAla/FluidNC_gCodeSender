@@ -310,9 +310,13 @@ void UpdateManager::ShowUpdateDialog(wxWindow* parent, const UpdateInfo& info) {
 
 void UpdateManager::OnUpdateCheckComplete(const UpdateInfo& info) {
     if (!info.error.IsEmpty()) {
-        // Silently log error - don't bother user with update check failures
-        ErrorHandler::Instance().ReportInfo("Update Check", 
-                                wxString::Format("Update check failed: %s", info.error));
+        // Only show error dialogs for serious connection issues, not parsing issues
+        if (info.error.Contains("Failed to connect") || info.error.Contains("Failed to get update")) {
+            // Even then, just log silently - update checks should not annoy users
+            wxLogMessage("Update check failed: %s", info.error);
+        }
+        // For parsing errors (like "Invalid response format"), just ignore silently
+        // This handles cases where there are no releases yet
         return;
     }
     
@@ -323,4 +327,5 @@ void UpdateManager::OnUpdateCheckComplete(const UpdateInfo& info) {
             ShowUpdateDialog(mainWindow, info);
         }
     }
+    // If no update available and no error, just silently succeed
 }
