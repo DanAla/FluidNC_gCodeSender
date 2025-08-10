@@ -302,7 +302,13 @@ void ErrorDialog::OnCopyToClipboard(wxCommandEvent& WXUNUSED(event))
         if (copyBtn) {
             copyBtn->SetLabel("Copied, closing...");
             copyBtn->SetBackgroundColour(wxColour(40, 167, 69)); // Green background
-            copyBtn->SetForegroundColour(*wxWHITE);
+            copyBtn->SetForegroundColour(wxColour(255, 255, 255)); // Explicit white
+            
+            // Make text bold for better readability
+            wxFont font = copyBtn->GetFont();
+            font.MakeBold();
+            copyBtn->SetFont(font);
+            
             copyBtn->Enable(false); // Disable to prevent multiple clicks
             copyBtn->Refresh();
             
