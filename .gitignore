@@ -205,3 +205,61 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# C++ build directories and files
+build/
+build-*/
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.lib
+*.a
+*.pdb
+*.ilk
+*.exp
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+# Visual Studio
+.vs/
+*.vcxproj.user
+*.sln.docstates
+*.sdf
+*.opensdf
+*.db
+*.opendb
+*.VC.opendb
+
+# Code::Blocks
+*.layout
+*.depend
+
+# Qt Creator
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.moc
+*.moc.cpp
+*.qm
+*.prl
+
+# Temporary files
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

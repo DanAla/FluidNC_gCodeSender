@@ -1,0 +1,164 @@
+/**
+ * gui/MainFrame.h
+ * Professional MDI main frame with flexible docking, toolbars, status bars
+ * Supports multiple machines, dynamic panel management, and full layout persistence
+ */
+
+#pragma once
+
+#include <wx/wx.h>
+// #include <wx/aui/aui.h>
+// #include <wx/aui/framemanager.h>
+#include <wx/statusbr.h>
+#include <wx/toolbar.h>
+#include <memory>
+#include <map>
+#include <vector>
+
+class StateManager;
+class ConnectionManager;
+class DROPanel;
+class JogPanel;
+class SettingsDialog;
+class MachineManagerPanel;
+class SVGViewer;
+class GCodeEditor;
+class MacroPanel;
+class ConsolePanel;
+
+// Panel IDs for consistent identification
+enum PanelID {
+    PANEL_DRO = 1000,
+    PANEL_JOG,
+    PANEL_MACHINE_MANAGER,
+    PANEL_SVG_VIEWER,
+    PANEL_GCODE_EDITOR,
+    PANEL_MACRO,
+    PANEL_CONSOLE
+};
+
+// Panel information structure
+struct PanelInfo {
+    wxString name;
+    wxString title;
+    wxPanel* panel;
+    PanelID id;
+    bool canClose = true;
+    bool defaultVisible = true;
+    wxString defaultPosition = "center";  // left, right, top, bottom, center
+    wxSize defaultSize = wxSize(300, 200);
+};
+
+/**
+ * Professional CNC control application main frame
+ * Features:
+ * - Flexible docking with AUI
+ * - Multiple toolbar support
+ * - Multi-field status bar
+ * - Menu-driven panel visibility
+ * - Complete layout persistence
+ * - Multi-machine support
+ */
+class MainFrame : public wxFrame
+{
+public:
+    MainFrame();
+    ~MainFrame();
+    
+    // Panel management
+    void ShowPanel(PanelID panelId, bool show = true);
+    void TogglePanelVisibility(PanelID panelId);
+    bool IsPanelVisible(PanelID panelId) const;
+    void ResetLayout();
+    void SaveCurrentLayout();
+    void LoadSavedLayout();
+    
+    // Machine status updates
+    void UpdateMachineStatus(const std::string& machineId, const std::string& status);
+    void UpdateConnectionStatus(const std::string& machineId, bool connected);
+    void UpdateDRO(const std::string& machineId, const std::vector<float>& mpos, const std::vector<float>& wpos);
+    
+private:
+    // Event handlers
+    void OnExit(wxCommandEvent& event);
+    void OnAbout(wxCommandEvent& event);
+    void OnShowWelcome(wxCommandEvent& event);
+    void OnClose(wxCloseEvent& event);
+    void OnSize(wxSizeEvent& event);
+    
+    // Menu handlers
+    void OnNewMachine(wxCommandEvent& event);
+    void OnEditMachines(wxCommandEvent& event);
+    void OnConnectAll(wxCommandEvent& event);
+    void OnDisconnectAll(wxCommandEvent& event);
+    void OnEmergencyStop(wxCommandEvent& event);
+    void OnSettings(wxCommandEvent& event);
+    void OnTogglePanel(wxCommandEvent& event);
+    void OnResetLayout(wxCommandEvent& event);
+    
+    // Toolbar handlers
+    void OnToolbarConnect(wxCommandEvent& event);
+    void OnToolbarDisconnect(wxCommandEvent& event);
+    void OnToolbarEmergencyStop(wxCommandEvent& event);
+    void OnToolbarHome(wxCommandEvent& event);
+    void OnToolbarJog(wxCommandEvent& event);
+    
+    // AUI handlers (temporarily disabled)
+    // void OnPaneClose(wxAuiManagerEvent& event);
+    // void OnPaneRestore(wxAuiManagerEvent& event);
+    
+    // UI Creation
+    void CreateMenuBar();
+    void CreateToolBars();
+    void CreateStatusBar();
+    void CreatePanels();
+    void SetupAuiManager();
+    
+    // Layout management
+    void CreateDefaultLayout();
+    void SaveWindowGeometry();
+    void RestoreWindowGeometry();
+    void UpdateMenuItems();
+    void UpdateToolbarStates();
+    void UpdateStatusBar();
+    
+    // Utility functions
+    PanelInfo* FindPanelInfo(PanelID id);
+    PanelInfo* FindPanelInfo(wxPanel* panel);
+    void AddPanelToAui(PanelInfo& panelInfo);
+    
+    // Core components - temporarily disabled
+    // StateManager& m_stateManager;
+    // std::unique_ptr<ConnectionManager> m_connectionManager;
+    
+    // UI Management (AUI temporarily disabled)
+    // wxAuiManager m_auiManager;
+    
+    // Toolbars (AUI temporarily disabled)
+    // wxAuiToolBar* m_mainToolbar;
+    // wxAuiToolBar* m_machineToolbar;
+    // wxAuiToolBar* m_fileToolbar;
+    
+    // Status bar
+    wxStatusBar* m_statusBar;
+    enum StatusField {
+        STATUS_MAIN = 0,
+        STATUS_MACHINE,
+        STATUS_CONNECTION,
+        STATUS_POSITION,
+        STATUS_COUNT
+    };
+    
+    // Panels storage
+    std::vector<PanelInfo> m_panels;
+    
+    // Menu references for dynamic updates
+    wxMenu* m_viewMenu;
+    wxMenu* m_machineMenu;
+    std::map<PanelID, wxMenuItem*> m_panelMenuItems;
+    
+    // Current machine context (simplified)
+    // std::string m_currentMachine;
+    
+    wxDECLARE_EVENT_TABLE();
+};
