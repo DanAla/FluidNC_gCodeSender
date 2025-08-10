@@ -127,6 +127,7 @@ constexpr const char* COMPILER = "Unknown";
 std::string GetFullVersionString();
 std::string GetBuildInfoString();
 std::string GetAboutInfoString();
+std::string GetFeaturesString();
 
 } // namespace Version
 } // namespace FluidNC

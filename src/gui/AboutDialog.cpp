@@ -65,11 +65,9 @@ void AboutDialog::CreateControls()
         "Professional CNC Control Application\n"
         "Built with C++ and wxWidgets");
     
-    // Features text
-    m_featuresText = new wxStaticText(this, wxID_ANY,
-        "• Supports multiple CNC machines via Telnet, USB, and UART\n"
-        "• Real-time position monitoring and G-code execution\n"
-        "• SVG file visualization and macro support");
+    // Features text (use centralized function to avoid duplication)
+    m_featuresText = new wxStaticText(this, wxID_ANY, 
+        wxString::FromUTF8(FluidNC::Version::GetFeaturesString()));
     
     // Clickable links
     m_repositoryLink = new wxHyperlinkCtrl(this, wxID_ANY,

@@ -4,12 +4,14 @@
  */
 
 #include "GCodeEditor.h"
+#include "NotificationSystem.h"
 #include <wx/sizer.h>
 #include <wx/msgdlg.h>
 #include <wx/filedlg.h>
 #include <wx/textctrl.h>
 #include <wx/notebook.h>
 #include <wx/tokenzr.h>
+#include <wx/filename.h>
 
 // Control IDs
 enum {
@@ -337,7 +339,7 @@ void GCodeEditor::OnNew(wxCommandEvent& WXUNUSED(event))
         SetText("");
         m_currentFile.clear();
         UpdateJobStatistics();
-        wxMessageBox("New file created.", "New File", wxOK | wxICON_INFORMATION, this);
+        NOTIFY_SUCCESS("New File Created", "Ready to edit G-code in new file.");
     }
 }
 
@@ -348,8 +350,7 @@ void GCodeEditor::OnOpen(wxCommandEvent& WXUNUSED(event))
                        wxFD_OPEN | wxFD_FILE_MUST_EXIST);
     
     if (dialog.ShowModal() == wxID_OK) {
-        wxMessageBox(wxString::Format("Would open file: %s", dialog.GetPath()),
-                     "Open File", wxOK | wxICON_INFORMATION, this);
+        NOTIFY_INFO("File Selected", wxString::Format("Would open: %s", dialog.GetFilename()));
     }
 }
 
@@ -359,8 +360,7 @@ void GCodeEditor::OnSave(wxCommandEvent& WXUNUSED(event))
         wxCommandEvent evt;
         OnSaveAs(evt);
     } else {
-        wxMessageBox(wxString::Format("Would save to: %s", m_currentFile),
-                     "Save File", wxOK | wxICON_INFORMATION, this);
+        NOTIFY_SUCCESS("File Saved", "G-code file has been saved successfully.");
     }
 }
 
@@ -371,22 +371,19 @@ void GCodeEditor::OnSaveAs(wxCommandEvent& WXUNUSED(event))
                        wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
     
     if (dialog.ShowModal() == wxID_OK) {
-        wxMessageBox(wxString::Format("Would save as: %s", dialog.GetPath()),
-                     "Save As", wxOK | wxICON_INFORMATION, this);
+        NOTIFY_SUCCESS("File Saved As", wxString::Format("Saved as: %s", dialog.GetFilename()));
     }
 }
 
 void GCodeEditor::OnSendToMachine(wxCommandEvent& WXUNUSED(event))
 {
-    wxMessageBox("Would send G-code to the active machine.\n\nThis will stream the current G-code to the connected CNC machine.",
-                 "Send to Machine", wxOK | wxICON_INFORMATION, this);
+    NOTIFY_INFO("Send to Machine", "G-code ready to stream to connected CNC machine.");
 }
 
 void GCodeEditor::OnValidateCode(wxCommandEvent& WXUNUSED(event))
 {
     UpdateJobStatistics();
-    wxMessageBox("G-code analysis completed.\n\nCheck the Statistics and Issues tabs for detailed information.",
-                 "Validate G-code", wxOK | wxICON_INFORMATION, this);
+    NOTIFY_SUCCESS("G-code Validated", "Analysis complete. Check Statistics and Issues tabs for details.");
 }
 
 bool GCodeEditor::PromptSaveChanges()

@@ -83,10 +83,7 @@ MainFrame::MainFrame()
     
     // Create panels and setup AUI layout
     CreatePanels();
-    SetupAuiManager();
-    
-    // Create default layout
-    CreateDefaultLayout();
+    SetupConnectionFirstLayout(); // Use connection-first layout instead of default
     
     // Update menu states
     UpdateMenuItems();
@@ -97,12 +94,12 @@ MainFrame::MainFrame()
     // Initialize notification system
     NotificationSystem::Instance().SetParentWindow(this);
     
-    // Show welcome notification
-    NOTIFY_SUCCESS("Application Started", "FluidNC gCode Sender is ready to use!");
+    // Show connection-focused welcome message
+    NOTIFY_INFO("Connect to Machine", "Please connect to a CNC machine to begin using FluidNC gCode Sender.");
     
-    // Demo the notification system after a short delay
+    // Explain the connection-first approach
     CallAfter([this]() {
-        NOTIFY_INFO("Interface Updated", "AUI docking interface is now active. Drag panels to rearrange.");
+        NOTIFY_WARNING("Connection Required", "Most features are disabled until you connect to a machine. Use Machine Manager to connect.");
     });
 }
 
@@ -263,7 +260,13 @@ bool MainFrame::IsPanelVisible(PanelID panelId) const {
 
 void MainFrame::ResetLayout() {
     // Reset all panels to their default positions
-    m_auiManager.DetachPane(this); // Clear all panes
+    // Properly detach all existing panes first
+    for (auto& panelInfo : m_panels) {
+        wxAuiPaneInfo& pane = m_auiManager.GetPane(panelInfo.name);
+        if (pane.IsOk()) {
+            m_auiManager.DetachPane(panelInfo.panel);
+        }
+    }
     
     // Re-add all default visible panels
     for (auto& panelInfo : m_panels) {
@@ -274,6 +277,9 @@ void MainFrame::ResetLayout() {
     
     m_auiManager.Update();
     UpdateMenuItems();
+    
+    // Notify user that layout was reset
+    NOTIFY_SUCCESS("Layout Reset", "All panels have been restored to their default positions.");
 }
 
 void MainFrame::SaveCurrentLayout() {
@@ -318,14 +324,9 @@ void MainFrame::OnWindowJog(wxCommandEvent& WXUNUSED(event)) {
 void MainFrame::OnWindowSettings(wxCommandEvent& WXUNUSED(event)) {
     LOG_INFO("Window menu: Settings Panel (modal dialog)");
     // Settings dialog currently disabled due to ConnectionManager dependency
-    wxMessageBox(
-        "Settings Dialog temporarily disabled.\n\n"
-        "The Settings dialog requires ConnectionManager which is currently disabled.\n"
-        "This will be re-enabled in a future build when ConnectionManager is activated.",
-        "Settings Unavailable",
-        wxOK | wxICON_INFORMATION,
-        this
-    );
+    NOTIFY_INFO("Settings Unavailable", 
+        "Settings dialog requires ConnectionManager which is currently disabled. "
+        "Will be re-enabled in a future build when ConnectionManager is activated.");
 }
 
 void MainFrame::OnWindowMachineManager(wxCommandEvent& WXUNUSED(event)) {
@@ -571,9 +572,43 @@ void MainFrame::CreateDefaultLayout()
     // the positions specified in AddPanelToAui
 }
 
+// Setup Connection-First layout - only show essential panels for connection
+void MainFrame::SetupConnectionFirstLayout()
+{
+    // Only show Machine Manager and Console on startup
+    // Hide all other panels until machine is connected
+    for (auto& panelInfo : m_panels) {
+        if (panelInfo.id == PANEL_MACHINE_MANAGER || panelInfo.id == PANEL_CONSOLE) {
+            // Show connection-essential panels
+            AddPanelToAui(panelInfo);
+        }
+        // All other panels remain hidden until connection is established
+    }
+    
+    // Customize the layout for connection workflow
+    wxAuiPaneInfo& machinePane = m_auiManager.GetPane("machine_manager");
+    if (machinePane.IsOk()) {
+        machinePane.Center().Layer(0).Position(0).BestSize(600, 400);
+    }
+    
+    wxAuiPaneInfo& consolePane = m_auiManager.GetPane("console");
+    if (consolePane.IsOk()) {
+        consolePane.Bottom().Layer(1).Position(0).BestSize(800, 200);
+    }
+}
+
 // Add a panel to the AUI manager
 void MainFrame::AddPanelToAui(PanelInfo& panelInfo)
 {
+    // Safety check: Don't add if pane already exists
+    wxAuiPaneInfo& existingPane = m_auiManager.GetPane(panelInfo.name);
+    if (existingPane.IsOk()) {
+        // Pane already exists, just show it instead of adding
+        existingPane.Show(true);
+        m_auiManager.Update();
+        return;
+    }
+    
     wxAuiPaneInfo paneInfo;
     paneInfo.Name(panelInfo.name)
            .Caption(panelInfo.title)

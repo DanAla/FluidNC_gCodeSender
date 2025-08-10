@@ -56,6 +56,13 @@ private:
     void UpdateMachineDetails();
     void PopulateMachineList();
     
+    // Settings management
+    wxString GetSettingsPath();
+    void CreateEmptyMachinesFile(const wxString& filePath);
+    
+    // Connection helper methods
+    bool TestTelnetConnection(const std::string& host, int port);
+    
     // UI Components
     wxSplitterWindow* m_splitter;
     
@@ -71,6 +78,7 @@ private:
     // Machine details panel
     wxPanel* m_detailsPanel;
     wxStaticText* m_nameLabel;
+    wxStaticText* m_descriptionLabel;
     wxStaticText* m_hostLabel;
     wxStaticText* m_portLabel;
     wxStaticText* m_statusLabel;
@@ -88,6 +96,7 @@ private:
     struct MachineConfig {
         std::string id;
         std::string name;
+        std::string description;
         std::string host;
         int port;
         std::string machineType;

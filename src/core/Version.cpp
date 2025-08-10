@@ -40,11 +40,11 @@ std::string GetBuildInfoString() {
     
     // Dependency versions
     oss << "Dependencies:\n";
-    oss << "• wxWidgets: " << WXWIDGETS_VER << "\n";
-    oss << "• nlohmann/json: " << JSON_VER << "\n";
-    oss << "• CMake: " << CMAKE_VER << "\n";
-    oss << "• MinGW Target: " << MINGW_ARCH << "\n";
-    oss << "• C++ Standard: 17";
+    oss << "  * wxWidgets: " << WXWIDGETS_VER << "\n";
+    oss << "  * nlohmann/json: " << JSON_VER << "\n";
+    oss << "  * CMake: " << CMAKE_VER << "\n";
+    oss << "  * MinGW Target: " << MINGW_ARCH << "\n";
+    oss << "  * C++ Standard: 17";
     
     return oss.str();
 }
@@ -60,9 +60,7 @@ std::string GetAboutInfoString() {
     oss << "Built with C++ and wxWidgets\n\n";
     
     // Features
-    oss << "Supports multiple CNC machines via Telnet, USB, and UART\n";
-    oss << "Real-time position monitoring and G-code execution\n";
-    oss << "SVG file visualization and macro support\n\n";
+    oss << GetFeaturesString() << "\n\n";
     
     // Repository and build info
     oss << "Repository: " << REPOSITORY_URL << "\n";
@@ -72,6 +70,12 @@ std::string GetAboutInfoString() {
     oss << GetBuildInfoString();
     
     return oss.str();
+}
+
+std::string GetFeaturesString() {
+    return "- Supports multiple CNC machines via Telnet, USB, and UART\n"
+           "- Real-time position monitoring and G-code execution\n"
+           "- SVG file visualization and macro support";
 }
 
 } // namespace Version

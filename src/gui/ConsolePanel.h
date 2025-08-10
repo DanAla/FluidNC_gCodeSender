@@ -47,6 +47,9 @@ public:
     void SetFilter(const std::string& filter);
     void SetShowTimestamps(bool show);
     void SetShowLevel(const std::string& level, bool show);
+    
+    // Connection status
+    void SetConnectionEnabled(bool connected);
 
 private:
     // Event handlers
@@ -63,6 +66,7 @@ private:
     void OnShowReceived(wxCommandEvent& event);
     void OnHistorySelected(wxCommandEvent& event);
     void OnHistoryActivated(wxCommandEvent& event);
+    void OnKeyDown(wxKeyEvent& event);
     
     // UI Creation
     void CreateControls();
@@ -78,6 +82,9 @@ private:
     void SaveCommandHistory();
     void AddToHistory(const std::string& command);
     std::string GetTimestamp() const;
+    
+    // Command history navigation
+    void ShowCommandHistory(bool show);
     
     // Message filtering
     bool ShouldShowMessage(const std::string& level) const;
@@ -127,6 +134,11 @@ private:
     bool m_showErrorFlag;
     bool m_showSentFlag;
     bool m_showReceivedFlag;
+    
+    // Command history navigation
+    int m_historyIndex;
+    bool m_historyExpanded;
+    std::string m_currentCommand;
     
     // Limits
     static const size_t MAX_LOG_ENTRIES = 1000;

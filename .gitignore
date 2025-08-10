@@ -272,3 +272,16 @@ REDESIGNED_ARCHITECTURE.md
 RELEASE_NOTES_v0.0.1.md
 SETUP_FOR_YOUR_SYSTEM.md
 URLS_AND_ENDPOINTS.md
+
+# AI Rules and Guidelines (keep local, don't commit to repo)
+.ai-rules
+AI-RULES.md
+RULES.txt
+.warp-rules
+AI_backup/
+# But DO commit AI documentation for project
+# README-FOR-AI.md (commit this one)
+README-FOR-AI.md
+# AI-SESSION-STARTUP.md (commit this one)
+AI-SESSION-STARTUP.md
+

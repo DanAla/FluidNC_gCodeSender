@@ -4,8 +4,26 @@
  */
 
 #include "MachineManagerPanel.h"
+#include "AddMachineDialog.h"
 #include <wx/sizer.h>
 #include <wx/msgdlg.h>
+#include <wx/datetime.h>
+#include <wx/filename.h>
+#include <wx/dir.h>
+#include <wx/textfile.h>
+#include <wx/stdpaths.h>
+#include <wx/progdlg.h>
+#include <json.hpp>
+#include <fstream>
+#include <chrono>
+#include <future>
+
+// Windows socket includes
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+#endif
 
 // Control IDs
 enum {
@@ -58,7 +76,7 @@ void MachineManagerPanel::CreateControls()
     CreateMachineList();
     CreateMachineDetails();
     
-    m_splitter->SplitVertically(m_listPanel, m_detailsPanel, 300);
+    m_splitter->SplitHorizontally(m_listPanel, m_detailsPanel, 300);
     
     mainSizer->Add(m_splitter, 1, wxALL | wxEXPAND, 5);
     SetSizer(mainSizer);
@@ -114,13 +132,18 @@ void MachineManagerPanel::CreateMachineDetails()
     detailsTitle->SetFont(detailsTitle->GetFont().Bold());
     detailsSizer->Add(detailsTitle, 0, wxALL, 5);
     
-    // Details grid
-    wxFlexGridSizer* gridSizer = new wxFlexGridSizer(6, 2, 5, 10);
+    // Details grid - increased rows to accommodate description
+    wxFlexGridSizer* gridSizer = new wxFlexGridSizer(7, 2, 5, 10);
     gridSizer->AddGrowableCol(1, 1);
     
     gridSizer->Add(new wxStaticText(m_detailsPanel, wxID_ANY, "Name:"), 0, wxALIGN_CENTER_VERTICAL);
     m_nameLabel = new wxStaticText(m_detailsPanel, wxID_ANY, "-");
     gridSizer->Add(m_nameLabel, 1, wxEXPAND);
+    
+    gridSizer->Add(new wxStaticText(m_detailsPanel, wxID_ANY, "Description:"), 0, wxALIGN_TOP);
+    m_descriptionLabel = new wxStaticText(m_detailsPanel, wxID_ANY, "-");
+    m_descriptionLabel->Wrap(300); // Allow text wrapping for long descriptions
+    gridSizer->Add(m_descriptionLabel, 1, wxEXPAND);
     
     gridSizer->Add(new wxStaticText(m_detailsPanel, wxID_ANY, "Host:"), 0, wxALIGN_CENTER_VERTICAL);
     m_hostLabel = new wxStaticText(m_detailsPanel, wxID_ANY, "-");
@@ -171,38 +194,54 @@ void MachineManagerPanel::CreateMachineDetails()
 
 void MachineManagerPanel::LoadMachineConfigs()
 {
-    // Create some dummy machine configurations
     m_machines.clear();
     
-    MachineConfig machine1;
-    machine1.id = "machine1";
-    machine1.name = "CNC Router";
-    machine1.host = "192.168.1.100";
-    machine1.port = 23;
-    machine1.machineType = "FluidNC";
-    machine1.connected = false;
-    machine1.lastConnected = "Never";
-    m_machines.push_back(machine1);
+    wxString settingsPath = GetSettingsPath();
+    wxString machinesFile = settingsPath + wxFileName::GetPathSeparator() + "machines.json";
     
-    MachineConfig machine2;
-    machine2.id = "machine2";
-    machine2.name = "Laser Engraver";
-    machine2.host = "192.168.1.101";
-    machine2.port = 23;
-    machine2.machineType = "FluidNC";
-    machine2.connected = false;
-    machine2.lastConnected = "2025-01-09 14:30:00";
-    m_machines.push_back(machine2);
+    // Check if machines.json exists
+    if (!wxFileName::FileExists(machinesFile)) {
+        // Create empty machines file
+        CreateEmptyMachinesFile(machinesFile);
+        return; // Start with empty machine list
+    }
     
-    MachineConfig machine3;
-    machine3.id = "machine3";
-    machine3.name = "3D Printer";
-    machine3.host = "localhost";
-    machine3.port = 8080;
-    machine3.machineType = "Marlin";
-    machine3.connected = true;
-    machine3.lastConnected = "Connected";
-    m_machines.push_back(machine3);
+    try {
+        // Read the JSON file
+        std::ifstream file(machinesFile.ToStdString());
+        if (!file.is_open()) {
+            wxLogWarning("Could not open machines.json file for reading");
+            return;
+        }
+        
+        nlohmann::json j;
+        file >> j;
+        file.close();
+        
+        // Parse machines from JSON
+        if (j.contains("machines") && j["machines"].is_array()) {
+            for (const auto& machineJson : j["machines"]) {
+                MachineConfig machine;
+                
+                machine.id = machineJson.value("id", "");
+                machine.name = machineJson.value("name", "");
+                machine.description = machineJson.value("description", "");
+                machine.host = machineJson.value("host", "");
+                machine.port = machineJson.value("port", 23);
+                machine.machineType = machineJson.value("machineType", "FluidNC");
+                machine.connected = false; // Always start disconnected
+                machine.lastConnected = machineJson.value("lastConnected", "Never");
+                
+                m_machines.push_back(machine);
+            }
+        }
+        
+        wxLogMessage("Loaded %zu machine configurations from %s", m_machines.size(), machinesFile);
+        
+    } catch (const std::exception& e) {
+        wxLogError("Error loading machine configurations: %s", e.what());
+        // Continue with empty machine list on error
+    }
 }
 
 void MachineManagerPanel::PopulateMachineList()
@@ -271,6 +310,12 @@ void MachineManagerPanel::UpdateMachineDetails()
     
     if (selectedMachine) {
         m_nameLabel->SetLabel(selectedMachine->name);
+        
+        // Set description with proper handling for empty descriptions
+        wxString description = selectedMachine->description.empty() ? "No description" : selectedMachine->description;
+        m_descriptionLabel->SetLabel(description);
+        m_descriptionLabel->Wrap(300); // Re-wrap after setting new text
+        
         m_hostLabel->SetLabel(selectedMachine->host);
         m_portLabel->SetLabel(std::to_string(selectedMachine->port));
         m_machineTypeLabel->SetLabel(selectedMachine->machineType);
@@ -293,6 +338,7 @@ void MachineManagerPanel::UpdateMachineDetails()
     } else {
         // Clear details
         m_nameLabel->SetLabel("-");
+        m_descriptionLabel->SetLabel("-");
         m_hostLabel->SetLabel("-");
         m_portLabel->SetLabel("-");
         m_machineTypeLabel->SetLabel("-");
@@ -329,28 +375,204 @@ void MachineManagerPanel::OnMachineActivated(wxListEvent& event)
 
 void MachineManagerPanel::OnAddMachine(wxCommandEvent& WXUNUSED(event))
 {
-    wxMessageBox("Add Machine dialog would open here.\n\nThis will allow creating new machine configurations.",
-                 "Add Machine", wxOK | wxICON_INFORMATION, this);
+    AddMachineDialog dialog(this);
+    
+    if (dialog.ShowModal() == wxID_OK) {
+        AddMachineDialog::MachineData data = dialog.GetMachineData();
+        
+        // Generate unique machine ID
+        std::string machineId = "machine" + std::to_string(m_machines.size() + 1);
+        
+        // Create new machine configuration
+        MachineConfig newMachine;
+        newMachine.id = machineId;
+        newMachine.name = data.name.ToStdString();
+        newMachine.description = data.description.ToStdString();
+        newMachine.host = data.host.ToStdString();
+        newMachine.port = data.port;
+        newMachine.machineType = data.machineType.ToStdString();
+        newMachine.connected = false;
+        newMachine.lastConnected = "Never";
+        
+        // Add to machines list
+        m_machines.push_back(newMachine);
+        
+        // Save to persistent storage
+        SaveMachineConfigs();
+        
+        // Refresh the list display
+        PopulateMachineList();
+        
+        // Select the newly added machine
+        for (int i = 0; i < m_machineList->GetItemCount(); ++i) {
+            if (m_machineList->GetItemText(i, 0) == data.name) {
+                m_machineList->SetItemState(i, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+                SelectMachine(machineId);
+                break;
+            }
+        }
+        
+        // Show success message
+        wxString successMsg = wxString::Format(
+            "Machine '%s' has been successfully added!\n\n"
+            "Type: %s\n"
+            "Protocol: %s\n",
+            data.name, data.machineType, data.protocol
+        );
+        
+        if (data.protocol == "Telnet" || data.protocol == "WebSocket") {
+            successMsg += wxString::Format("Connection: %s:%d\n", data.host, data.port);
+        } else if (data.protocol == "USB/Serial") {
+            successMsg += wxString::Format("Connection: %s @ %s baud\n", data.serialPort, data.baudRate);
+        }
+        
+        successMsg += "\nYou can now connect to this machine using the Connect button.";
+        
+        wxMessageBox(successMsg, "Machine Added Successfully", wxOK | wxICON_INFORMATION, this);
+    }
 }
 
 void MachineManagerPanel::OnEditMachine(wxCommandEvent& WXUNUSED(event))
 {
     if (m_selectedMachine.empty()) return;
     
-    wxMessageBox(wxString::Format("Edit Machine dialog would open here for machine: %s\n\nThis will allow editing machine configuration.",
-                                 m_selectedMachine), "Edit Machine", wxOK | wxICON_INFORMATION, this);
+    // Find the selected machine
+    const MachineConfig* selectedMachine = nullptr;
+    size_t selectedIndex = 0;
+    for (size_t i = 0; i < m_machines.size(); ++i) {
+        if (m_machines[i].id == m_selectedMachine) {
+            selectedMachine = &m_machines[i];
+            selectedIndex = i;
+            break;
+        }
+    }
+    
+    if (!selectedMachine) return;
+    
+    // Create edit dialog with existing machine data
+    AddMachineDialog dialog(this, true, wxString::Format("Edit Machine - %s", selectedMachine->name));
+    
+    // Convert MachineConfig to AddMachineDialog::MachineData
+    AddMachineDialog::MachineData data;
+    data.name = selectedMachine->name;
+    data.description = selectedMachine->description;
+    data.host = selectedMachine->host;
+    data.port = selectedMachine->port;
+    data.protocol = "Telnet"; // Default - could be extended to store protocol
+    data.machineType = selectedMachine->machineType;
+    data.baudRate = "115200"; // Default
+    data.serialPort = "COM1"; // Default
+    
+    dialog.SetMachineData(data);
+    
+    if (dialog.ShowModal() == wxID_OK) {
+        AddMachineDialog::MachineData updatedData = dialog.GetMachineData();
+        
+        // Update the machine configuration
+        m_machines[selectedIndex].name = updatedData.name.ToStdString();
+        m_machines[selectedIndex].description = updatedData.description.ToStdString();
+        m_machines[selectedIndex].host = updatedData.host.ToStdString();
+        m_machines[selectedIndex].port = updatedData.port;
+        m_machines[selectedIndex].machineType = updatedData.machineType.ToStdString();
+        
+        // Save to persistent storage
+        SaveMachineConfigs();
+        
+        // Refresh the list display
+        PopulateMachineList();
+        
+        // Reselect the edited machine
+        for (int i = 0; i < m_machineList->GetItemCount(); ++i) {
+            if (m_machineList->GetItemText(i, 0) == updatedData.name) {
+                m_machineList->SetItemState(i, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+                break;
+            }
+        }
+        
+        // Update details display
+        UpdateMachineDetails();
+        
+        // Show success message
+        wxString successMsg = wxString::Format(
+            "Machine '%s' has been successfully updated!\n\n"
+            "Type: %s\n"
+            "Protocol: %s\n",
+            updatedData.name, updatedData.machineType, updatedData.protocol
+        );
+        
+        if (updatedData.protocol == "Telnet" || updatedData.protocol == "WebSocket") {
+            successMsg += wxString::Format("Connection: %s:%d\n", updatedData.host, updatedData.port);
+        } else if (updatedData.protocol == "USB/Serial") {
+            successMsg += wxString::Format("Connection: %s @ %s baud\n", updatedData.serialPort, updatedData.baudRate);
+        }
+        
+        wxMessageBox(successMsg, "Machine Updated Successfully", wxOK | wxICON_INFORMATION, this);
+    }
 }
 
 void MachineManagerPanel::OnRemoveMachine(wxCommandEvent& WXUNUSED(event))
 {
     if (m_selectedMachine.empty()) return;
     
-    int result = wxMessageBox(wxString::Format("Are you sure you want to remove machine: %s?", m_selectedMachine),
-                             "Remove Machine", wxYES_NO | wxICON_QUESTION, this);
+    // Find the selected machine
+    const MachineConfig* selectedMachine = nullptr;
+    size_t selectedIndex = 0;
+    for (size_t i = 0; i < m_machines.size(); ++i) {
+        if (m_machines[i].id == m_selectedMachine) {
+            selectedMachine = &m_machines[i];
+            selectedIndex = i;
+            break;
+        }
+    }
+    
+    if (!selectedMachine) return;
+    
+    // Prevent removing connected machines
+    if (selectedMachine->connected) {
+        wxMessageBox(
+            wxString::Format("Cannot remove machine '%s' because it is currently connected.\n\n"
+                           "Please disconnect the machine first before removing it.",
+                           selectedMachine->name),
+            "Cannot Remove Connected Machine", wxOK | wxICON_WARNING, this);
+        return;
+    }
+    
+    // Enhanced confirmation dialog with machine details
+    wxString confirmMsg = wxString::Format(
+        "Are you sure you want to permanently remove the following machine?\n\n"
+        "Name: %s\n"
+        "Type: %s\n"
+        "Host: %s\n"
+        "Port: %d\n\n"
+        "This action cannot be undone!",
+        selectedMachine->name, selectedMachine->machineType, 
+        selectedMachine->host, selectedMachine->port
+    );
+    
+    int result = wxMessageBox(confirmMsg, "Remove Machine", wxYES_NO | wxICON_QUESTION, this);
     
     if (result == wxYES) {
-        // Remove from vector (simplified)
-        wxMessageBox("Machine would be removed here.", "Remove Machine", wxOK | wxICON_INFORMATION, this);
+        std::string removedName = selectedMachine->name;
+        
+        // Remove from vector
+        m_machines.erase(m_machines.begin() + selectedIndex);
+        
+        // Save to persistent storage
+        SaveMachineConfigs();
+        
+        // Clear selection
+        m_selectedMachine.clear();
+        
+        // Refresh the list display
+        PopulateMachineList();
+        
+        // Update details display
+        UpdateMachineDetails();
+        
+        // Show success message
+        wxMessageBox(
+            wxString::Format("Machine '%s' has been successfully removed.", removedName),
+            "Machine Removed", wxOK | wxICON_INFORMATION, this);
     }
 }
 
@@ -358,24 +580,222 @@ void MachineManagerPanel::OnConnect(wxCommandEvent& WXUNUSED(event))
 {
     if (m_selectedMachine.empty()) return;
     
-    wxMessageBox(wxString::Format("Connecting to machine: %s\n\nThis will establish a connection to the selected machine.",
-                                 m_selectedMachine), "Connect", wxOK | wxICON_INFORMATION, this);
+    // Find the selected machine
+    MachineConfig* selectedMachine = nullptr;
+    size_t selectedIndex = 0;
+    for (size_t i = 0; i < m_machines.size(); ++i) {
+        if (m_machines[i].id == m_selectedMachine) {
+            selectedMachine = &m_machines[i];
+            selectedIndex = i;
+            break;
+        }
+    }
+    
+    if (!selectedMachine) return;
+    
+    // Check if already connected
+    if (selectedMachine->connected) {
+        wxMessageBox(
+            wxString::Format("Machine '%s' is already connected.\n\n"
+                           "Use the Disconnect button to disconnect first.",
+                           selectedMachine->name),
+            "Already Connected", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+    
+    // Show connection progress dialog
+    wxProgressDialog* progressDlg = new wxProgressDialog(
+        "Connecting to Machine",
+        wxString::Format("Establishing connection to %s:%d...", selectedMachine->host, selectedMachine->port),
+        100, this,
+        wxPD_APP_MODAL | wxPD_AUTO_HIDE | wxPD_CAN_ABORT
+    );
+    
+    progressDlg->Pulse("Connecting...");
+    
+    // Test connection first in a separate thread
+    std::future<bool> connectionTest = std::async(std::launch::async, [this, selectedMachine]() {
+        return TestTelnetConnection(selectedMachine->host, selectedMachine->port);
+    });
+    
+    // Wait for connection test with timeout
+    auto status = connectionTest.wait_for(std::chrono::seconds(10));
+    
+    progressDlg->Destroy();
+    
+    if (status == std::future_status::timeout) {
+        wxMessageBox(
+            wxString::Format("Connection to '%s' timed out.\n\n"
+                           "Host: %s\n"
+                           "Port: %d\n\n"
+                           "Please check your connection and try again.",
+                           selectedMachine->name, selectedMachine->host, selectedMachine->port),
+            "Connection Timeout", wxOK | wxICON_WARNING, this);
+        return;
+    }
+    
+    bool connectionSuccess = connectionTest.get();
+    
+    if (connectionSuccess) {
+        // Update machine status
+        selectedMachine->connected = true;
+        selectedMachine->lastConnected = wxDateTime::Now().Format("%Y-%m-%d %H:%M:%S").ToStdString();
+        
+        // Save updated configuration
+        SaveMachineConfigs();
+        
+        // Refresh UI
+        RefreshMachineList();
+        UpdateMachineDetails();
+        
+        // Show success message
+        wxMessageBox(
+            wxString::Format("Successfully connected to '%s'!\n\n"
+                           "Host: %s\n"
+                           "Port: %d\n"
+                           "Type: %s\n\n"
+                           "The machine is now active and ready for use.",
+                           selectedMachine->name, selectedMachine->host, 
+                           selectedMachine->port, selectedMachine->machineType),
+            "Connection Successful", wxOK | wxICON_INFORMATION, this);
+    } else {
+        // Connection failed
+        wxMessageBox(
+            wxString::Format("Failed to connect to '%s'.\n\n"
+                           "Host: %s\n"
+                           "Port: %d\n\n"
+                           "Possible causes:\n"
+                           "- Machine is powered off or not responding\n"
+                           "- Network connection issues\n"
+                           "- Incorrect host address or port\n"
+                           "- Firewall blocking the connection\n"
+                           "- Machine is busy or in an error state\n\n"
+                           "Please check the machine and try again.",
+                           selectedMachine->name, selectedMachine->host, selectedMachine->port),
+            "Connection Failed", wxOK | wxICON_ERROR, this);
+    }
 }
 
 void MachineManagerPanel::OnDisconnect(wxCommandEvent& WXUNUSED(event))
 {
     if (m_selectedMachine.empty()) return;
     
-    wxMessageBox(wxString::Format("Disconnecting from machine: %s", m_selectedMachine),
-                 "Disconnect", wxOK | wxICON_INFORMATION, this);
+    // Find the selected machine
+    MachineConfig* selectedMachine = nullptr;
+    for (auto& machine : m_machines) {
+        if (machine.id == m_selectedMachine) {
+            selectedMachine = &machine;
+            break;
+        }
+    }
+    
+    if (!selectedMachine) return;
+    
+    // Check if actually connected
+    if (!selectedMachine->connected) {
+        wxMessageBox(
+            wxString::Format("Machine '%s' is not currently connected.",
+                           selectedMachine->name),
+            "Not Connected", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+    
+    // Confirm disconnection
+    int result = wxMessageBox(
+        wxString::Format("Are you sure you want to disconnect from '%s'?\n\n"
+                       "Host: %s\n"
+                       "Port: %d\n\n"
+                       "Any ongoing operations will be interrupted.",
+                       selectedMachine->name, selectedMachine->host, selectedMachine->port),
+        "Confirm Disconnection", wxYES_NO | wxICON_QUESTION, this);
+    
+    if (result == wxYES) {
+        // Update machine status
+        selectedMachine->connected = false;
+        
+        // Save updated configuration
+        SaveMachineConfigs();
+        
+        // Refresh UI
+        RefreshMachineList();
+        UpdateMachineDetails();
+        
+        // Show disconnection message
+        wxMessageBox(
+            wxString::Format("Successfully disconnected from '%s'.\n\n"
+                           "The machine is now offline and no longer active.",
+                           selectedMachine->name),
+            "Disconnected", wxOK | wxICON_INFORMATION, this);
+    }
 }
 
 void MachineManagerPanel::OnTestConnection(wxCommandEvent& WXUNUSED(event))
 {
     if (m_selectedMachine.empty()) return;
     
-    wxMessageBox(wxString::Format("Testing connection to machine: %s\n\nThis will test the connection without establishing a permanent connection.",
-                                 m_selectedMachine), "Test Connection", wxOK | wxICON_INFORMATION, this);
+    // Find the selected machine
+    const MachineConfig* selectedMachine = nullptr;
+    for (const auto& machine : m_machines) {
+        if (machine.id == m_selectedMachine) {
+            selectedMachine = &machine;
+            break;
+        }
+    }
+    
+    if (!selectedMachine) return;
+    
+    // Show progress dialog
+    wxProgressDialog* progressDlg = new wxProgressDialog(
+        "Testing Connection",
+        wxString::Format("Testing connection to %s:%d...", selectedMachine->host, selectedMachine->port),
+        100, this,
+        wxPD_APP_MODAL | wxPD_AUTO_HIDE | wxPD_CAN_ABORT
+    );
+    
+    progressDlg->Pulse("Connecting...");
+    
+    // Test connection in a separate thread to avoid blocking UI
+    std::future<bool> connectionTest = std::async(std::launch::async, [this, selectedMachine]() {
+        return TestTelnetConnection(selectedMachine->host, selectedMachine->port);
+    });
+    
+    // Wait for connection test with timeout
+    auto status = connectionTest.wait_for(std::chrono::seconds(5));
+    
+    progressDlg->Destroy();
+    
+    if (status == std::future_status::timeout) {
+        wxMessageBox(
+            wxString::Format("Connection test to '%s' timed out.\n\n"
+                           "Host: %s\n"
+                           "Port: %d\n\n"
+                           "The machine may be offline or unreachable.",
+                           selectedMachine->name, selectedMachine->host, selectedMachine->port),
+            "Connection Test - Timeout", wxOK | wxICON_WARNING, this);
+    } else {
+        bool success = connectionTest.get();
+        if (success) {
+            wxMessageBox(
+                wxString::Format("Connection test to '%s' was successful!\n\n"
+                               "Host: %s\n"
+                               "Port: %d\n\n"
+                               "The machine is reachable and accepting connections.",
+                               selectedMachine->name, selectedMachine->host, selectedMachine->port),
+                "Connection Test - Success", wxOK | wxICON_INFORMATION, this);
+        } else {
+            wxMessageBox(
+                wxString::Format("Connection test to '%s' failed.\n\n"
+                               "Host: %s\n"
+                               "Port: %d\n\n"
+                               "Please check that:\n"
+                               "- The machine is powered on and connected\n"
+                               "- The network connection is working\n"
+                               "- The host address and port are correct\n"
+                               "- No firewall is blocking the connection",
+                               selectedMachine->name, selectedMachine->host, selectedMachine->port),
+                "Connection Test - Failed", wxOK | wxICON_ERROR, this);
+        }
+    }
 }
 
 void MachineManagerPanel::OnImportConfig(wxCommandEvent& WXUNUSED(event))
@@ -390,7 +810,172 @@ void MachineManagerPanel::OnExportConfig(wxCommandEvent& WXUNUSED(event))
                  "Export Config", wxOK | wxICON_INFORMATION, this);
 }
 
+wxString MachineManagerPanel::GetSettingsPath()
+{
+    // Get user's app data directory
+    wxString appDataDir = wxStandardPaths::Get().GetUserDataDir();
+    
+    // Create our settings subdirectory
+    wxString settingsDir = appDataDir + wxFileName::GetPathSeparator() + "settings";
+    
+    // Ensure the settings directory exists
+    if (!wxDir::Exists(settingsDir)) {
+        if (!wxFileName::Mkdir(settingsDir, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL)) {
+            wxLogError("Could not create settings directory: %s", settingsDir);
+            return wxEmptyString;
+        }
+        wxLogMessage("Created settings directory: %s", settingsDir);
+    }
+    
+    return settingsDir;
+}
+
+void MachineManagerPanel::CreateEmptyMachinesFile(const wxString& filePath)
+{
+    try {
+        nlohmann::json j;
+        j["machines"] = nlohmann::json::array();
+        j["version"] = "1.0";
+        j["created"] = wxDateTime::Now().Format("%Y-%m-%d %H:%M:%S").ToStdString();
+        
+        std::ofstream file(filePath.ToStdString());
+        if (file.is_open()) {
+            file << j.dump(4); // Pretty print with 4-space indentation
+            file.close();
+            wxLogMessage("Created empty machines.json file: %s", filePath);
+        } else {
+            wxLogError("Could not create machines.json file: %s", filePath);
+        }
+    } catch (const std::exception& e) {
+        wxLogError("Error creating machines.json file: %s", e.what());
+    }
+}
+
 void MachineManagerPanel::SaveMachineConfigs()
 {
-    // TODO: Implement configuration persistence
+    wxString settingsPath = GetSettingsPath();
+    if (settingsPath.IsEmpty()) {
+        wxLogError("Could not determine settings path");
+        return;
+    }
+    
+    wxString machinesFile = settingsPath + wxFileName::GetPathSeparator() + "machines.json";
+    
+    try {
+        nlohmann::json j;
+        j["machines"] = nlohmann::json::array();
+        j["version"] = "1.0";
+        j["lastModified"] = wxDateTime::Now().Format("%Y-%m-%d %H:%M:%S").ToStdString();
+        
+        // Convert machines to JSON
+        for (const auto& machine : m_machines) {
+            nlohmann::json machineJson;
+            machineJson["id"] = machine.id;
+            machineJson["name"] = machine.name;
+            machineJson["description"] = machine.description;
+            machineJson["host"] = machine.host;
+            machineJson["port"] = machine.port;
+            machineJson["machineType"] = machine.machineType;
+            machineJson["lastConnected"] = machine.lastConnected;
+            
+            j["machines"].push_back(machineJson);
+        }
+        
+        // Write to file
+        std::ofstream file(machinesFile.ToStdString());
+        if (file.is_open()) {
+            file << j.dump(4); // Pretty print with 4-space indentation
+            file.close();
+            wxLogMessage("Saved %zu machine configurations to %s", m_machines.size(), machinesFile);
+        } else {
+            wxLogError("Could not open machines.json file for writing: %s", machinesFile);
+        }
+        
+    } catch (const std::exception& e) {
+        wxLogError("Error saving machine configurations: %s", e.what());
+    }
+}
+
+// Connection helper methods
+bool MachineManagerPanel::TestTelnetConnection(const std::string& host, int port)
+{
+#ifdef _WIN32
+    // Initialize Winsock
+    WSADATA wsaData;
+    int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (result != 0) {
+        return false;
+    }
+    
+    // Create socket
+    SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == INVALID_SOCKET) {
+        WSACleanup();
+        return false;
+    }
+    
+    // Set socket to non-blocking mode for timeout control
+    u_long mode = 1;
+    ioctlsocket(sock, FIONBIO, &mode);
+    
+    // Set up address
+    sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    
+    // Convert hostname to IP address
+    struct addrinfo hints, *res;
+    ZeroMemory(&hints, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    
+    if (getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res) != 0) {
+        closesocket(sock);
+        WSACleanup();
+        return false;
+    }
+    
+    addr = *((sockaddr_in*)res->ai_addr);
+    freeaddrinfo(res);
+    
+    // Attempt to connect
+    int connectResult = connect(sock, (sockaddr*)&addr, sizeof(addr));
+    
+    if (connectResult == SOCKET_ERROR) {
+        int error = WSAGetLastError();
+        if (error == WSAEWOULDBLOCK) {
+            // Connection in progress, wait for completion
+            fd_set writeSet;
+            FD_ZERO(&writeSet);
+            FD_SET(sock, &writeSet);
+            
+            struct timeval timeout;
+            timeout.tv_sec = 3;  // 3 second timeout
+            timeout.tv_usec = 0;
+            
+            int selectResult = select(0, NULL, &writeSet, NULL, &timeout);
+            if (selectResult > 0) {
+                // Check if connection was successful
+                int optval;
+                int optlen = sizeof(optval);
+                getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&optval, &optlen);
+                
+                closesocket(sock);
+                WSACleanup();
+                return (optval == 0);
+            }
+        }
+        closesocket(sock);
+        WSACleanup();
+        return false;
+    }
+    
+    // Connection successful
+    closesocket(sock);
+    WSACleanup();
+    return true;
+#else
+    // Unix/Linux implementation would go here
+    return false;
+#endif
 }

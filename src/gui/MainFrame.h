@@ -126,6 +126,7 @@ private:
     
     // Layout management
     void CreateDefaultLayout();
+    void SetupConnectionFirstLayout(); // Connection-focused startup layout
     void SaveWindowGeometry();
     void RestoreWindowGeometry();
     void UpdateMenuItems();

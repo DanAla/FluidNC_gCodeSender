@@ -6,6 +6,7 @@
 #include "UpdateChecker.h"
 #include "Version.h"
 #include "ErrorHandler.h"
+#include "../gui/NotificationSystem.h"
 #include <wx/protocol/http.h>
 #include <wx/url.h>
 #include <wx/stream.h>
@@ -291,19 +292,18 @@ void UpdateManager::TrackApplicationStart() {
 void UpdateManager::ShowUpdateDialog(wxWindow* parent, const UpdateInfo& info) {
     if (!info.updateAvailable) return;
     
+    // Use notification system instead of modal dialog
     wxString message = wxString::Format(
-        "A new version of FluidNC gCode Sender is available!\n\n"
-        "Current Version: %s\n"
-        "Latest Version: %s\n\n"
-        "Would you like to visit the download page?",
-        info.currentVersion,
-        info.latestVersion
+        "Version %s available (current: %s). Click to download.",
+        info.latestVersion,
+        info.currentVersion
     );
     
-    int result = wxMessageBox(message, "Update Available", 
-                             wxYES_NO | wxICON_INFORMATION, parent);
+    // Show success notification for available updates with longer duration
+    NotificationSystem::Instance().ShowSuccess("Update Available", message, 8000);
     
-    if (result == wxYES && !info.downloadUrl.IsEmpty()) {
+    // Automatically open browser for convenience
+    if (!info.downloadUrl.IsEmpty()) {
         wxLaunchDefaultBrowser(info.downloadUrl);
     }
 }

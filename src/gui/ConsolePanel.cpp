@@ -41,6 +41,7 @@ wxBEGIN_EVENT_TABLE(ConsolePanel, wxPanel)
     EVT_CHECKBOX(ID_SHOW_RECEIVED, ConsolePanel::OnShowReceived)
     EVT_LISTBOX(ID_COMMAND_HISTORY, ConsolePanel::OnHistorySelected)
     EVT_LISTBOX_DCLICK(ID_COMMAND_HISTORY, ConsolePanel::OnHistoryActivated)
+    EVT_CHAR_HOOK(ConsolePanel::OnKeyDown)
 wxEND_EVENT_TABLE()
 
 ConsolePanel::ConsolePanel(wxWindow* parent)
@@ -54,27 +55,17 @@ ConsolePanel::ConsolePanel(wxWindow* parent)
     m_showSentFlag = true;
     m_showReceivedFlag = true;
     
+    // Initialize command history navigation
+    m_historyIndex = -1;
+    m_historyExpanded = false;
+    m_currentCommand = "";
+    
     CreateControls();
     LoadCommandHistory();
     
-    // Add some sample terminal communication log
-    LogMessage("Terminal initialized - ready for machine communication", "INFO");
-    LogMessage("Telnet connection established on 192.168.1.100:23", "INFO");
-    LogSentCommand("$I");
-    LogReceivedResponse("[VER:1.1f.20210131:] [OPT:VNMZ,35,16]");
-    LogReceivedResponse("[MSG:INFO: FluidNC v3.7.9]");
-    LogSentCommand("$$");
-    LogReceivedResponse("$0=10.000 (Step pulse time, microseconds)");
-    LogReceivedResponse("$1=25.000 (Step idle delay, milliseconds)");
-    LogReceivedResponse("$2=0 (Step pulse invert, bool)");
-    LogReceivedResponse("$3=0 (Step direction invert, bool)");
-    LogMessage("Machine configuration loaded", "INFO");
-    LogSentCommand("$G");
-    LogReceivedResponse("[G0G54G17G21G90G94M5M9T0F0S0]");
-    LogSentCommand("?");
-    LogReceivedResponse("<Idle|MPos:0.000,0.000,0.000|FS:0,0>");
-    LogWarning("Machine position may need homing");
-    LogMessage("Live communication monitoring active", "INFO");
+    // Initialize with clean terminal - ready for real machine communication
+    LogMessage("Terminal Console initialized - ready for machine connection", "INFO");
+    LogMessage("Select a machine in Machine Manager and connect to begin communication", "INFO");
 }
 
 void ConsolePanel::CreateControls()
@@ -86,21 +77,18 @@ void ConsolePanel::CreateControls()
     title->SetFont(title->GetFont().Scale(1.2).Bold());
     mainSizer->Add(title, 0, wxALL | wxCENTER, 5);
     
-    // Create filter controls first
+    // Create filter controls
     CreateFilterControls();
     mainSizer->Add(m_filterPanel, 0, wxEXPAND | wxLEFT | wxRIGHT, 5);
     
-    // Splitter window
-    m_splitter = new wxSplitterWindow(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, 
-                                     wxSP_3D | wxSP_LIVE_UPDATE);
-    m_splitter->SetMinimumPaneSize(100);
-    
+    // Create log display (takes most of the space)
     CreateLogDisplay();
+    mainSizer->Add(m_logPanel, 1, wxALL | wxEXPAND, 5);
+    
+    // Create command input area at bottom
     CreateCommandInterface();
+    mainSizer->Add(m_commandPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
     
-    m_splitter->SplitVertically(m_logPanel, m_commandPanel, -250);
-    
-    mainSizer->Add(m_splitter, 1, wxALL | wxEXPAND, 5);
     SetSizer(mainSizer);
 }
 
@@ -152,7 +140,7 @@ void ConsolePanel::CreateFilterControls()
 
 void ConsolePanel::CreateLogDisplay()
 {
-    m_logPanel = new wxPanel(m_splitter, wxID_ANY);
+    m_logPanel = new wxPanel(this, wxID_ANY);
     wxBoxSizer* logSizer = new wxBoxSizer(wxVERTICAL);
     
     // Log display
@@ -166,21 +154,22 @@ void ConsolePanel::CreateLogDisplay()
     m_logDisplay->SetBackgroundColour(*wxBLACK);
     m_logDisplay->SetForegroundColour(*wxWHITE);
     
-    logSizer->Add(m_logDisplay, 1, wxALL | wxEXPAND, 5);
+    logSizer->Add(m_logDisplay, 1, wxEXPAND, 0);
     
     m_logPanel->SetSizer(logSizer);
 }
 
 void ConsolePanel::CreateCommandInterface()
 {
-    m_commandPanel = new wxPanel(m_splitter, wxID_ANY);
+    m_commandPanel = new wxPanel(this, wxID_ANY);
     wxBoxSizer* commandSizer = new wxBoxSizer(wxVERTICAL);
     
-    // Command input
-    wxStaticText* inputLabel = new wxStaticText(m_commandPanel, wxID_ANY, "Command Input:");
-    inputLabel->SetFont(inputLabel->GetFont().Bold());
-    commandSizer->Add(inputLabel, 0, wxALL, 5);
+    // Command history (initially hidden)
+    m_commandHistory = new wxListBox(m_commandPanel, ID_COMMAND_HISTORY);
+    m_commandHistory->Show(false); // Initially hidden
+    commandSizer->Add(m_commandHistory, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 3);
     
+    // Command input line at the bottom
     wxBoxSizer* inputSizer = new wxBoxSizer(wxHORIZONTAL);
     
     m_commandInput = new wxTextCtrl(m_commandPanel, ID_COMMAND_INPUT, wxEmptyString,
@@ -190,15 +179,11 @@ void ConsolePanel::CreateCommandInterface()
     inputSizer->Add(m_commandInput, 1, wxEXPAND | wxRIGHT, 5);
     inputSizer->Add(m_sendBtn, 0);
     
-    commandSizer->Add(inputSizer, 0, wxALL | wxEXPAND, 5);
+    commandSizer->Add(inputSizer, 0, wxEXPAND | wxALL, 3);
     
-    // Command history
-    wxStaticText* historyLabel = new wxStaticText(m_commandPanel, wxID_ANY, "Command History:");
-    historyLabel->SetFont(historyLabel->GetFont().Bold());
-    commandSizer->Add(historyLabel, 0, wxALL, 5);
-    
-    m_commandHistory = new wxListBox(m_commandPanel, ID_COMMAND_HISTORY);
-    commandSizer->Add(m_commandHistory, 1, wxALL | wxEXPAND, 5);
+    // Disable command input until machine is connected
+    m_commandInput->Enable(false);
+    m_sendBtn->Enable(false);
     
     m_commandPanel->SetSizer(commandSizer);
 }
@@ -393,6 +378,20 @@ void ConsolePanel::SetShowLevel(const std::string& level, bool show)
     UpdateLogDisplay();
 }
 
+void ConsolePanel::SetConnectionEnabled(bool connected)
+{
+    if (m_commandInput && m_sendBtn) {
+        m_commandInput->Enable(connected);
+        m_sendBtn->Enable(connected);
+        
+        if (connected) {
+            LogMessage("Machine connected - command input enabled", "INFO");
+        } else {
+            LogMessage("Machine disconnected - command input disabled", "INFO");
+        }
+    }
+}
+
 // Event handlers
 void ConsolePanel::OnSendCommand(wxCommandEvent& WXUNUSED(event))
 {
@@ -484,6 +483,119 @@ void ConsolePanel::OnHistoryActivated(wxCommandEvent& WXUNUSED(event))
     wxCommandEvent evt;
     OnHistorySelected(evt);
     OnSendCommand(evt);
+}
+
+void ConsolePanel::OnKeyDown(wxKeyEvent& event)
+{
+    if (event.GetEventObject() != m_commandInput) {
+        event.Skip();
+        return;
+    }
+    
+    int keyCode = event.GetKeyCode();
+    
+    if (keyCode == WXK_UP) {
+        // Show history if not already shown and navigate up
+        if (!m_historyExpanded) {
+            ShowCommandHistory(true);
+        }
+        
+        if (!m_commandHistoryData.empty()) {
+            if (m_historyIndex == -1) {
+                // First time pressing up - save current input and move to most recent
+                m_currentCommand = m_commandInput->GetValue().ToStdString();
+                m_historyIndex = 0;
+            } else if (m_historyIndex < (int)m_commandHistoryData.size() - 1) {
+                m_historyIndex++;
+            }
+            
+            // Update input with history command
+            m_commandInput->SetValue(m_commandHistoryData[m_historyIndex]);
+            m_commandInput->SetInsertionPointEnd();
+            
+            // Select the item in history list
+            if (m_commandHistory->IsShown()) {
+                m_commandHistory->SetSelection(m_historyIndex);
+            }
+        }
+    }
+    else if (keyCode == WXK_DOWN) {
+        if (m_historyExpanded && !m_commandHistoryData.empty()) {
+            if (m_historyIndex > 0) {
+                m_historyIndex--;
+                m_commandInput->SetValue(m_commandHistoryData[m_historyIndex]);
+                m_commandInput->SetInsertionPointEnd();
+                
+                // Select the item in history list
+                if (m_commandHistory->IsShown()) {
+                    m_commandHistory->SetSelection(m_historyIndex);
+                }
+            } else if (m_historyIndex == 0) {
+                // Return to original command
+                m_historyIndex = -1;
+                m_commandInput->SetValue(m_currentCommand);
+                m_commandInput->SetInsertionPointEnd();
+                
+                // Clear selection
+                if (m_commandHistory->IsShown()) {
+                    m_commandHistory->SetSelection(wxNOT_FOUND);
+                }
+                
+                // Hide history when we return to original
+                ShowCommandHistory(false);
+            }
+        }
+    }
+    else if (keyCode == WXK_ESCAPE) {
+        // ESC key hides history and resets to original command
+        if (m_historyExpanded) {
+            ShowCommandHistory(false);
+            m_historyIndex = -1;
+            m_commandInput->SetValue(m_currentCommand);
+            m_commandInput->SetInsertionPointEnd();
+        }
+    }
+    else {
+        // Any other key hides history and resets index
+        if (m_historyExpanded && keyCode != WXK_RETURN && keyCode != WXK_NUMPAD_ENTER) {
+            ShowCommandHistory(false);
+            m_historyIndex = -1;
+        }
+        event.Skip();
+    }
+}
+
+void ConsolePanel::ShowCommandHistory(bool show)
+{
+    if (m_historyExpanded == show) return;
+    
+    m_historyExpanded = show;
+    
+    if (show) {
+        // Show up to 4 commands
+        int numItems = std::min(4, (int)m_commandHistoryData.size());
+        if (numItems > 0) {
+            // Calculate height needed (item height * num items + some padding)
+            int itemHeight = m_commandHistory->GetCharHeight() + 4;
+            int historyHeight = itemHeight * numItems + 8;
+            
+            m_commandHistory->SetMinSize(wxSize(-1, historyHeight));
+            m_commandHistory->Show(true);
+            
+            // Update sizer to accommodate new size
+            m_commandPanel->GetSizer()->Layout();
+            
+            // Refresh parent to update layout
+            GetParent()->Layout();
+        }
+    } else {
+        m_commandHistory->Show(false);
+        m_commandHistory->SetSelection(wxNOT_FOUND);
+        
+        // Update layout
+        m_commandPanel->GetSizer()->Layout();
+        GetParent()->Layout();
+    }
 }
 
 void ConsolePanel::SaveCommandHistory()
