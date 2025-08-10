@@ -6,4 +6,4 @@
 #include "App.h"
 
 // wxWidgets requires this macro for application entry point
-wxIMPLEMENT_APP(FluidNCApp);
+wxIMPLEMENT_APP(FluidNCApp); 

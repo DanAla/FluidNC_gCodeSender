@@ -158,7 +158,7 @@ wxString UpdateChecker::GetOperatingSystemInfo() {
 
 wxString UpdateChecker::GetPlatformInfo() {
     wxPlatformInfo platform;
-    return platform.GetArchName() + " (" + platform.GetEndiannessName() + ")";
+    return platform.GetBitnessName() + " (" + platform.GetEndiannessName() + ")";
 }
 
 void UpdateChecker::SetAnalyticsEndpoint(const wxString& url) {
