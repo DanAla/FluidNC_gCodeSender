@@ -375,6 +375,57 @@ cmake --build build-linux</code>
     <script>
         // Update last updated time
         document.getElementById('last-updated').textContent = new Date().toISOString().split('T')[0];
+        
+        // Simple website analytics tracking
+        function trackPageView() {
+            try {
+                const pageData = {
+                    page: 'index',
+                    timestamp: new Date().toISOString(),
+                    referrer: document.referrer || 'direct',
+                    userAgent: navigator.userAgent,
+                    language: navigator.language,
+                    screen: `${screen.width}x${screen.height}`,
+                    viewport: `${window.innerWidth}x${window.innerHeight}`,
+                    url: window.location.href
+                };
+                
+                // Store in localStorage for basic analytics
+                let siteVisits = JSON.parse(localStorage.getItem('fluidnc_site_visits') || '[]');
+                siteVisits.push(pageData);
+                
+                // Keep only last 100 visits to avoid storage issues
+                if (siteVisits.length > 100) {
+                    siteVisits = siteVisits.slice(-100);
+                }
+                
+                localStorage.setItem('fluidnc_site_visits', JSON.stringify(siteVisits));
+                
+                // Also call the tracking endpoint (same as app usage tracking)
+                const trackingUrl = `track.html?page=index&timestamp=${encodeURIComponent(pageData.timestamp)}&referrer=${encodeURIComponent(pageData.referrer)}&lang=${encodeURIComponent(pageData.language)}`;
+                
+                // Use a hidden iframe to call tracking endpoint without navigation
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.src = trackingUrl;
+                document.body.appendChild(iframe);
+                
+                // Remove iframe after a short delay
+                setTimeout(() => {
+                    document.body.removeChild(iframe);
+                }, 2000);
+                
+            } catch (error) {
+                console.log('Analytics tracking failed:', error);
+            }
+        }
+        
+        // Track page view on load
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', trackPageView);
+        } else {
+            trackPageView();
+        }
     </script>
 </body>
 </html>

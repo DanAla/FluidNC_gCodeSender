@@ -157,10 +157,36 @@
             <div class="stat-number" id="current-version-users">-</div>
             <div class="stat-label">Current Version Users</div>
         </div>
+        <div class="stat-card">
+            <div class="stat-number" id="website-visits">-</div>
+            <div class="stat-label">Website Visits</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="website-visits-today">-</div>
+            <div class="stat-label">Website Visits Today</div>
+        </div>
     </div>
 
     <div class="analytics-section">
-        <h3>📊 Detailed Usage Statistics</h3>
+        <h3>🌐 Website Visit Statistics</h3>
+        <table class="analytics-table">
+            <thead>
+                <tr>
+                    <th>Page</th>
+                    <th>Timestamp</th>
+                    <th>Referrer</th>
+                    <th>Language</th>
+                    <th>Browser</th>
+                </tr>
+            </thead>
+            <tbody id="website-data">
+                <!-- Website visit data will be loaded here -->
+            </tbody>
+        </table>
+    </div>
+
+    <div class="analytics-section">
+        <h3>📊 App Usage Statistics</h3>
         <table class="analytics-table">
             <thead>
                 <tr>
@@ -275,6 +301,14 @@
         }
 
         function updateDashboard() {
+            // Load website analytics from localStorage
+            let storedAnalytics = {};
+            try {
+                storedAnalytics = JSON.parse(localStorage.getItem('fluidnc_analytics') || '{}');
+            } catch (e) {
+                console.log('Could not load stored analytics:', e);
+            }
+            
             // Update summary stats
             const totalUsers = analyticsData.length;
             const totalStarts = analyticsData.reduce((sum, user) => sum + user.starts, 0);
@@ -284,13 +318,43 @@
                 return lastSeen.toDateString() === today.toDateString();
             }).length;
             const currentVersionUsers = analyticsData.filter(user => user.version === currentVersion).length;
+            
+            // Website visit stats
+            const websiteVisits = storedAnalytics.website ? storedAnalytics.website.visits || [] : [];
+            const totalWebsiteVisits = websiteVisits.length;
+            const websiteVisitsToday = websiteVisits.filter(visit => {
+                const today = new Date();
+                const visitDate = new Date(visit.timestamp);
+                return visitDate.toDateString() === today.toDateString();
+            }).length;
 
             document.getElementById('total-users').textContent = totalUsers;
             document.getElementById('total-starts').textContent = totalStarts;
             document.getElementById('active-today').textContent = activeToday;
             document.getElementById('current-version-users').textContent = currentVersionUsers;
+            document.getElementById('website-visits').textContent = totalWebsiteVisits;
+            document.getElementById('website-visits-today').textContent = websiteVisitsToday;
 
-            // Update table
+            // Update website visits table
+            const websiteTbody = document.getElementById('website-data');
+            if (websiteVisits.length > 0) {
+                websiteTbody.innerHTML = websiteVisits.slice(-20).reverse().map(visit => {
+                    const browserInfo = getBrowserInfo(visit.user_agent);
+                    return `
+                        <tr>
+                            <td><strong>${visit.page}</strong></td>
+                            <td>${new Date(visit.timestamp).toLocaleString()}</td>
+                            <td><code>${visit.referrer === 'direct' ? 'Direct' : visit.referrer}</code></td>
+                            <td>${visit.language}</td>
+                            <td>${browserInfo}</td>
+                        </tr>
+                    `;
+                }).join('');
+            } else {
+                websiteTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #8b949e;">No website visits recorded yet</td></tr>';
+            }
+            
+            // Update app usage table
             const tbody = document.getElementById('analytics-data');
             tbody.innerHTML = analyticsData.map(user => `
                 <tr>
@@ -315,6 +379,15 @@
                 'AU': '🇦🇺'
             };
             return flags[countryCode] || '🌍';
+        }
+        
+        function getBrowserInfo(userAgent) {
+            if (userAgent.includes('Chrome')) return '🟢 Chrome';
+            if (userAgent.includes('Firefox')) return '🔥 Firefox';
+            if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) return '🍎 Safari';
+            if (userAgent.includes('Edge')) return '🔵 Edge';
+            if (userAgent.includes('Opera')) return '🔴 Opera';
+            return '❓ Other';
         }
 
         // Track update check (this endpoint will be called by the app)

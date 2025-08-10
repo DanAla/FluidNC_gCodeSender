@@ -12,7 +12,20 @@
             try {
                 // Get URL parameters
                 const urlParams = new URLSearchParams(window.location.search);
-                const data = {
+                
+                // Determine if this is a website visit or app usage
+                const isWebsiteVisit = urlParams.get('page') !== null;
+                
+                const data = isWebsiteVisit ? {
+                    // Website visit tracking
+                    page: urlParams.get('page') || 'unknown',
+                    timestamp: urlParams.get('timestamp') || new Date().toISOString(),
+                    referrer: urlParams.get('referrer') || 'direct',
+                    language: urlParams.get('lang') || 'unknown',
+                    user_agent: navigator.userAgent,
+                    type: 'website_visit'
+                } : {
+                    // App usage tracking
                     version: urlParams.get('version') || 'unknown',
                     os: urlParams.get('os') || 'unknown',
                     platform: urlParams.get('platform') || 'unknown',
@@ -20,14 +33,31 @@
                     timestamp: urlParams.get('timestamp') || new Date().toISOString(),
                     first_run: urlParams.get('first_run') === 'true',
                     ip: 'tracked_by_server', // Will be filled by server logs
-                    user_agent: navigator.userAgent
+                    user_agent: navigator.userAgent,
+                    type: 'app_usage'
                 };
                 
                 // Store in localStorage for later retrieval by analytics dashboard
-                let analytics = JSON.parse(localStorage.getItem('fluidnc_analytics') || '{"users": {}, "summary": {"totalUsers": 0, "totalStarts": 0}}');
+                let analytics = JSON.parse(localStorage.getItem('fluidnc_analytics') || '{"users": {}, "summary": {"totalUsers": 0, "totalStarts": 0}, "website": {"visits": [], "totalVisits": 0}}');
                 
-                // Generate a simple hash from IP (simulated) and user agent for user identification
-                const userHash = btoa(data.user_agent + data.os).substring(0, 16);
+                if (isWebsiteVisit) {
+                    // Handle website visit tracking
+                    if (!analytics.website) {
+                        analytics.website = {visits: [], totalVisits: 0};
+                    }
+                    
+                    analytics.website.visits.push(data);
+                    analytics.website.totalVisits++;
+                    
+                    // Keep only last 200 visits to avoid storage issues
+                    if (analytics.website.visits.length > 200) {
+                        analytics.website.visits = analytics.website.visits.slice(-200);
+                    }
+                    
+                } else {
+                    // Handle app usage tracking (existing logic)
+                    // Generate a simple hash from IP (simulated) and user agent for user identification
+                    const userHash = btoa(data.user_agent + data.os).substring(0, 16);
                 
                 if (!analytics.users[userHash]) {
                     analytics.users[userHash] = {
@@ -43,11 +73,12 @@
                     analytics.summary.totalUsers++;
                 }
                 
-                analytics.users[userHash].starts++;
-                analytics.users[userHash].lastSeen = data.timestamp;
-                analytics.users[userHash].version = data.version; // Update to latest version used
-                analytics.summary.totalStarts++;
-                analytics.summary.lastUpdated = data.timestamp;
+                    analytics.users[userHash].starts++;
+                    analytics.users[userHash].lastSeen = data.timestamp;
+                    analytics.users[userHash].version = data.version; // Update to latest version used
+                    analytics.summary.totalStarts++;
+                    analytics.summary.lastUpdated = data.timestamp;
+                }
                 
                 localStorage.setItem('fluidnc_analytics', JSON.stringify(analytics));
                 
@@ -108,8 +139,8 @@
 <body>
     <div class="status">
         <div class="checkmark">✓</div>
-        <h2>Usage Tracked Successfully</h2>
-        <p>Thank you for using FluidNC gCode Sender!</p>
+        <h2 id="track-title">Usage Tracked Successfully</h2>
+        <p id="track-message">Thank you for using FluidNC gCode Sender!</p>
         <div class="info">
             This endpoint tracks anonymous usage statistics to help improve the application.<br>
             <a href="index.html">View Analytics Dashboard</a> | 
