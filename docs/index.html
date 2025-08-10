@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FluidNC gCode Sender - Analytics</title>
+    <title>FluidNC gCode Sender - Cross-platform GUI for FluidNC</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -12,248 +12,369 @@
             padding: 20px;
             background: #0d1117;
             color: #e6edf3;
+            line-height: 1.6;
         }
         .header {
             text-align: center;
             margin-bottom: 40px;
-            padding: 30px;
+            padding: 40px;
             background: linear-gradient(135deg, #21262d, #30363d);
             border-radius: 12px;
             border: 1px solid #30363d;
         }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            color: #f0f6fc;
+        }
+        .header .subtitle {
+            font-size: 1.2em;
+            color: #8b949e;
             margin-bottom: 30px;
         }
-        .stat-card {
+        .version-info {
+            background: #0969da;
+            padding: 15px 25px;
+            border-radius: 8px;
+            display: inline-block;
+            margin: 10px;
+        }
+        .status-badge {
+            background: #1a7f37;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            margin: 5px;
+            display: inline-block;
+        }
+        .nav-links {
+            text-align: center;
+            margin: 30px 0;
+            padding: 20px;
             background: #21262d;
-            padding: 25px;
             border-radius: 8px;
             border: 1px solid #30363d;
-            text-align: center;
         }
-        .stat-number {
-            font-size: 2.5em;
-            font-weight: bold;
-            color: #2ea043;
-            margin-bottom: 10px;
+        .nav-links a {
+            background: #1f6feb;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 6px;
+            text-decoration: none;
+            margin: 0 10px;
+            display: inline-block;
+            font-weight: 500;
+            transition: background-color 0.2s;
         }
-        .stat-label {
-            color: #8b949e;
-            font-size: 0.9em;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+        .nav-links a:hover {
+            background: #1f6feb;
+            filter: brightness(1.1);
         }
-        .analytics-section {
+        .nav-links a.analytics {
+            background: #2ea043;
+        }
+        .nav-links a.github {
+            background: #6f42c1;
+        }
+        .content-section {
             background: #21262d;
             padding: 30px;
             border-radius: 8px;
             border: 1px solid #30363d;
+            margin-bottom: 30px;
+        }
+        .content-section h2 {
+            color: #f0f6fc;
+            border-bottom: 2px solid #30363d;
+            padding-bottom: 10px;
             margin-bottom: 20px;
         }
-        .analytics-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        .analytics-table th,
-        .analytics-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #30363d;
-        }
-        .analytics-table th {
-            background: #161b22;
+        .content-section h3 {
             color: #f0f6fc;
-            font-weight: 600;
+            margin-top: 25px;
         }
-        .analytics-table tr:hover {
-            background: #161b22;
-        }
-        .version-badge {
-            background: #1f6feb;
-            color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.8em;
-        }
-        .country-flag {
-            font-size: 1.2em;
-            margin-right: 8px;
-        }
-        #status {
-            padding: 15px;
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
             margin: 20px 0;
-            border-radius: 6px;
-            text-align: center;
-            font-weight: 500;
         }
-        .loading {
-            background: #0969da;
-            border: 1px solid #1f6feb;
-        }
-        .success {
-            background: #1a7f37;
-            border: 1px solid #2ea043;
-        }
-        .error {
-            background: #da3633;
-            border: 1px solid #f85149;
-        }
-        .update-info {
-            background: #0969da;
+        .feature-card {
+            background: #161b22;
             padding: 20px;
-            border-radius: 8px;
-            margin-top: 20px;
-            text-align: center;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+        }
+        .feature-card h4 {
+            color: #2ea043;
+            margin-bottom: 10px;
+        }
+        .progress-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .progress-card {
+            background: #161b22;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+        }
+        .progress-card.completed {
+            border-left: 4px solid #2ea043;
+        }
+        .progress-card.in-progress {
+            border-left: 4px solid #fd7e14;
+        }
+        .progress-card.planned {
+            border-left: 4px solid #6f42c1;
+        }
+        .code-block {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 16px;
+            margin: 16px 0;
+            overflow-x: auto;
+        }
+        .code-block code {
+            color: #e6edf3;
+            font-family: 'SFMono-Regular', Consolas, monospace;
+        }
+        ul {
+            padding-left: 20px;
+        }
+        li {
+            margin-bottom: 5px;
+        }
+        .check {
+            color: #2ea043;
+        }
+        .cross {
+            color: #f85149;
+        }
+        .build {
+            color: #fd7e14;
         }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>🛠️ FluidNC gCode Sender</h1>
-        <p>Usage Analytics & Update Server</p>
-        <div class="update-info">
+        <p class="subtitle">Cross-platform GUI for FluidNC: SVG → G-code, live DRO, jogging, macros, auto-restore after power loss</p>
+        
+        <div class="version-info">
             <strong>Latest Version: v0.0.4</strong><br>
-            <small>Last Updated: 2025-08-10</small>
+            <small>C++ wxWidgets Implementation</small>
+        </div>
+        
+        <div>
+            <span class="status-badge">✅ Core Infrastructure Complete</span>
+            <span class="status-badge">🚧 GUI Framework In Progress</span>
         </div>
     </div>
 
-    <div id="status" class="loading">Loading analytics data...</div>
+    <div class="nav-links">
+        <a href="https://github.com/DanAla/FluidNC_gCodeSender">📂 GitHub Repository</a>
+        <a href="https://github.com/DanAla/FluidNC_gCodeSender/releases" class="github">📦 Downloads</a>
+        <a href="usage.html" class="analytics">📊 Usage Analytics</a>
+        <a href="https://github.com/DanAla/FluidNC_gCodeSender/pulse" class="github">📈 Development Activity</a>
+    </div>
 
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-number" id="total-users">-</div>
-            <div class="stat-label">Total Users</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-number" id="total-starts">-</div>
-            <div class="stat-label">Total App Starts</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-number" id="active-today">-</div>
-            <div class="stat-label">Active Today</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-number" id="current-version-users">-</div>
-            <div class="stat-label">Current Version Users</div>
+    <div class="content-section">
+        <h2>🚀 Project Overview</h2>
+        <p>This is the <strong>C++ wxWidgets conversion</strong> of the original Python-based FluidNC_gCodeSender. The conversion is currently <strong>in progress</strong>, focusing on improved performance, lower memory usage, and enhanced thread safety.</p>
+        
+        <div class="features-grid">
+            <div class="feature-card">
+                <h4>🎯 Core Features</h4>
+                <ul>
+                    <li>Real-time DRO (Machine/Work position)</li>
+                    <li>SVG to G-code conversion</li>
+                    <li>Interactive jogging and homing</li>
+                    <li>Custom macro system</li>
+                    <li>Auto-restore after power loss</li>
+                </ul>
+            </div>
+            <div class="feature-card">
+                <h4>🔧 Technical Highlights</h4>
+                <ul>
+                    <li>Modern C++17 with threading</li>
+                    <li>Cross-platform (Windows/Linux)</li>
+                    <li>JSON-compatible configuration</li>
+                    <li>Thread-safe design</li>
+                    <li>AUI dockable interface</li>
+                </ul>
+            </div>
+            <div class="feature-card">
+                <h4>🌐 Connectivity</h4>
+                <ul>
+                    <li>Asynchronous telnet communication</li>
+                    <li>Auto-reconnection with retry</li>
+                    <li>Command queuing system</li>
+                    <li>Real-time status monitoring</li>
+                    <li>Cross-platform sockets</li>
+                </ul>
+            </div>
         </div>
     </div>
 
-    <div class="analytics-section">
-        <h3>📊 Detailed Usage Statistics</h3>
-        <table class="analytics-table">
-            <thead>
-                <tr>
-                    <th>IP Address</th>
-                    <th>Total Starts</th>
-                    <th>Last Seen</th>
-                    <th>Version</th>
-                    <th>OS</th>
-                    <th>Location</th>
-                </tr>
-            </thead>
-            <tbody id="analytics-data">
-                <!-- Data will be loaded here -->
-            </tbody>
-        </table>
+    <div class="content-section">
+        <h2>📈 Development Progress</h2>
+        
+        <div class="progress-section">
+            <div class="progress-card completed">
+                <h3><span class="check">✅</span> Phase 1: Core Infrastructure</h3>
+                <ul>
+                    <li><span class="check">✓</span> CMake build system</li>
+                    <li><span class="check">✓</span> StateManager (JSON persistence)</li>
+                    <li><span class="check">✓</span> FluidNCClient (network communication)</li>
+                    <li><span class="check">✓</span> Cross-platform socket abstraction</li>
+                    <li><span class="check">✓</span> Threading and synchronization</li>
+                </ul>
+            </div>
+            
+            <div class="progress-card in-progress">
+                <h3><span class="build">🚧</span> Phase 2: Basic GUI</h3>
+                <ul>
+                    <li><span class="build">⚡</span> MainFrame implementation</li>
+                    <li><span class="build">⚡</span> DROPanel implementation</li>
+                    <li><span class="build">⚡</span> JogPanel implementation</li>
+                    <li><span class="cross">◯</span> TelnetSetupPanel implementation</li>
+                    <li><span class="cross">◯</span> SettingsPanel implementation</li>
+                </ul>
+            </div>
+            
+            <div class="progress-card planned">
+                <h3><span class="cross">❌</span> Phase 3: Advanced Features</h3>
+                <ul>
+                    <li><span class="cross">◯</span> SVG loading and display</li>
+                    <li><span class="cross">◯</span> G-code generation from SVG</li>
+                    <li><span class="cross">◯</span> Macro engine</li>
+                    <li><span class="cross">◯</span> G-code editor with drag-drop</li>
+                    <li><span class="cross">◯</span> Toolpath preview</li>
+                </ul>
+            </div>
+        </div>
     </div>
 
-    <div class="analytics-section">
-        <h3>📈 Version Distribution</h3>
-        <div id="version-chart"></div>
+    <div class="content-section">
+        <h2>🔨 Building the Project</h2>
+        
+        <h3>Prerequisites</h3>
+        <ul>
+            <li><strong>CMake</strong> 3.16+</li>
+            <li><strong>C++17</strong> compatible compiler (MSVC 2019+, GCC 7+, Clang 5+)</li>
+            <li><strong>wxWidgets</strong> 3.1+ with AUI and PropGrid</li>
+            <li><strong>nlohmann::json</strong> (can be installed via package manager)</li>
+        </ul>
+
+        <h3>Windows (MSVC)</h3>
+        <div class="code-block">
+            <code># Install dependencies via vcpkg (recommended)
+vcpkg install wxwidgets nlohmann-json
+
+# Configure and build
+cmake -B build-win -S . -DCMAKE_TOOLCHAIN_FILE=[path-to-vcpkg]/scripts/buildsystems/vcpkg.cmake
+cmake --build build-win --config Release</code>
+        </div>
+
+        <h3>Linux (Ubuntu/Debian)</h3>
+        <div class="code-block">
+            <code># Install dependencies
+sudo apt-get install libwxgtk3.0-gtk3-dev nlohmann-json3-dev cmake build-essential
+
+# Build
+cmake -B build-linux -S .
+cmake --build build-linux</code>
+        </div>
     </div>
+
+    <div class="content-section">
+        <h2>⚙️ Configuration</h2>
+        <p>The application maintains the same configuration format as the Python version for seamless migration:</p>
+        <ul>
+            <li><strong>Settings</strong>: <code>config/settings.json</code> - Main application configuration</li>
+            <li><strong>Recovery</strong>: <code>config/recovery.json</code> - Auto-saved state for crash recovery</li>
+        </ul>
+
+        <h3>Example Configuration</h3>
+        <div class="code-block">
+            <code>{
+  "telnet": {
+    "host": "192.168.1.100",
+    "port": 23,
+    "connect_retries": 3,
+    "retry_interval_s": 2
+  },
+  "window_geometry": [100, 100, 1200, 800],
+  "aui_layout": {
+    "perspective": "layout0|name=setup;caption=;state=..."
+  },
+  "gcode_history": [
+    "G0 X10 Y10",
+    "$H",
+    "G1 X0 Y0 F1000"
+  ]
+}</code>
+        </div>
+    </div>
+
+    <div class="content-section">
+        <h2>🔄 Migration from Python Version</h2>
+        <ol>
+            <li><strong>Backup your configuration</strong>: <code>cp -r config/ config_backup/</code></li>
+            <li><strong>The C++ version automatically reads existing settings</strong>:
+                <ul>
+                    <li>All telnet settings</li>
+                    <li>Window positions and layout</li>
+                    <li>G-code command history</li>
+                    <li>Macro definitions (when implemented)</li>
+                </ul>
+            </li>
+            <li><strong>Benefits of the C++ version</strong>:
+                <ul>
+                    <li>Better performance due to native compilation</li>
+                    <li>Lower memory usage</li>
+                    <li>Improved thread safety</li>
+                    <li>Enhanced error handling</li>
+                </ul>
+            </li>
+        </ol>
+    </div>
+
+    <div class="content-section">
+        <h2>🤝 Contributing</h2>
+        <p>The conversion follows the original Python code structure while modernizing with C++ best practices. Key areas needing attention:</p>
+        <ul>
+            <li><strong>GUI Implementation</strong>: Converting wxPython panels to wxWidgets C++</li>
+            <li><strong>SVG Processing</strong>: Finding suitable C++ SVG library (considering Cairo, NanoSVG)</li>
+            <li><strong>Advanced Features</strong>: Macro scripting engine, G-code manipulation</li>
+            <li><strong>Testing</strong>: Unit tests and integration tests</li>
+            <li><strong>Documentation</strong>: API documentation and user guides</li>
+        </ul>
+    </div>
+
+    <div class="content-section">
+        <h2>📄 License</h2>
+        <p><strong>BSD 3-Clause License</strong> (same as original Python version)</p>
+        <p>Copyright © 2025 FluidNC gCode Sender Project. All rights reserved.</p>
+    </div>
+
+    <footer style="text-align: center; margin-top: 50px; padding: 20px; color: #8b949e; border-top: 1px solid #30363d;">
+        <p>🚀 <strong>FluidNC gCode Sender</strong> | Built with ❤️ using C++ and wxWidgets</p>
+        <p>
+            <a href="https://github.com/DanAla/FluidNC_gCodeSender" style="color: #1f6feb; text-decoration: none;">GitHub Repository</a> | 
+            <a href="usage.html" style="color: #2ea043; text-decoration: none;">Usage Analytics</a> |
+            <a href="https://github.com/DanAla/FluidNC_gCodeSender/releases" style="color: #1f6feb; text-decoration: none;">Downloads</a>
+        </p>
+        <small>Last updated: <span id="last-updated">2025-08-10</span> | Version: v0.0.4</small>
+    </footer>
 
     <script>
-        // Analytics data storage (simulated - in real implementation this would come from GitHub API or JSON files)
-        let analyticsData = [];
-        let currentVersion = 'v0.0.4';
-
-        // Load analytics data
-        async function loadAnalytics() {
-            try {
-                // In a real implementation, this would fetch from GitHub API or JSON files
-                // For now, we'll simulate some data
-                simulateData();
-                updateDashboard();
-                document.getElementById('status').className = 'success';
-                document.getElementById('status').textContent = 'Analytics loaded successfully';
-            } catch (error) {
-                document.getElementById('status').className = 'error';
-                document.getElementById('status').textContent = 'Error loading analytics: ' + error.message;
-            }
-        }
-
-        function simulateData() {
-            // This will be replaced with real data loading
-            analyticsData = [
-                {
-                    ip: '192.168.1.100',
-                    starts: 5,
-                    lastSeen: new Date().toISOString(),
-                    version: 'v0.0.3',
-                    os: 'Windows 10',
-                    country: 'US'
-                }
-            ];
-        }
-
-        function updateDashboard() {
-            // Update summary stats
-            const totalUsers = analyticsData.length;
-            const totalStarts = analyticsData.reduce((sum, user) => sum + user.starts, 0);
-            const activeToday = analyticsData.filter(user => {
-                const today = new Date();
-                const lastSeen = new Date(user.lastSeen);
-                return lastSeen.toDateString() === today.toDateString();
-            }).length;
-            const currentVersionUsers = analyticsData.filter(user => user.version === currentVersion).length;
-
-            document.getElementById('total-users').textContent = totalUsers;
-            document.getElementById('total-starts').textContent = totalStarts;
-            document.getElementById('active-today').textContent = activeToday;
-            document.getElementById('current-version-users').textContent = currentVersionUsers;
-
-            // Update table
-            const tbody = document.getElementById('analytics-data');
-            tbody.innerHTML = analyticsData.map(user => `
-                <tr>
-                    <td><code>${user.ip}</code></td>
-                    <td><strong>${user.starts}</strong></td>
-                    <td>${new Date(user.lastSeen).toLocaleString()}</td>
-                    <td><span class="version-badge">${user.version}</span></td>
-                    <td>${user.os}</td>
-                    <td><span class="country-flag">${getCountryFlag(user.country)}</span>${user.country}</td>
-                </tr>
-            `).join('');
-        }
-
-        function getCountryFlag(countryCode) {
-            const flags = {
-                'US': '🇺🇸',
-                'CA': '🇨🇦',
-                'GB': '🇬🇧',
-                'DE': '🇩🇪',
-                'FR': '🇫🇷',
-                'JP': '🇯🇵',
-                'AU': '🇦🇺'
-            };
-            return flags[countryCode] || '🌍';
-        }
-
-        // Track update check (this endpoint will be called by the app)
-        function trackUsage(data) {
-            // In real implementation, this would store data via GitHub API or commit to repo
-            console.log('Usage tracked:', data);
-        }
-
-        // Initialize
-        loadAnalytics();
-
-        // Auto-refresh every 5 minutes
-        setInterval(loadAnalytics, 5 * 60 * 1000);
+        // Update last updated time
+        document.getElementById('last-updated').textContent = new Date().toISOString().split('T')[0];
     </script>
 </body>
 </html>
