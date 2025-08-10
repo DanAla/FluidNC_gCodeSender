@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FluidNC gCode Sender - Analytics</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0d1117;
+            color: #e6edf3;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px;
+            background: linear-gradient(135deg, #21262d, #30363d);
+            border-radius: 12px;
+            border: 1px solid #30363d;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: #21262d;
+            padding: 25px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #2ea043;
+            margin-bottom: 10px;
+        }
+        .stat-label {
+            color: #8b949e;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .analytics-section {
+            background: #21262d;
+            padding: 30px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            margin-bottom: 20px;
+        }
+        .analytics-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .analytics-table th,
+        .analytics-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #30363d;
+        }
+        .analytics-table th {
+            background: #161b22;
+            color: #f0f6fc;
+            font-weight: 600;
+        }
+        .analytics-table tr:hover {
+            background: #161b22;
+        }
+        .version-badge {
+            background: #1f6feb;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+        }
+        .country-flag {
+            font-size: 1.2em;
+            margin-right: 8px;
+        }
+        #status {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 6px;
+            text-align: center;
+            font-weight: 500;
+        }
+        .loading {
+            background: #0969da;
+            border: 1px solid #1f6feb;
+        }
+        .success {
+            background: #1a7f37;
+            border: 1px solid #2ea043;
+        }
+        .error {
+            background: #da3633;
+            border: 1px solid #f85149;
+        }
+        .update-info {
+            background: #0969da;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛠️ FluidNC gCode Sender</h1>
+        <p>Usage Analytics & Update Server</p>
+        <div class="update-info">
+            <strong>Latest Version: v0.0.3</strong><br>
+            <small>Last Updated: 2025-08-10</small>
+        </div>
+    </div>
+
+    <div id="status" class="loading">Loading analytics data...</div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-number" id="total-users">-</div>
+            <div class="stat-label">Total Users</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="total-starts">-</div>
+            <div class="stat-label">Total App Starts</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="active-today">-</div>
+            <div class="stat-label">Active Today</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="current-version-users">-</div>
+            <div class="stat-label">Current Version Users</div>
+        </div>
+    </div>
+
+    <div class="analytics-section">
+        <h3>📊 Detailed Usage Statistics</h3>
+        <table class="analytics-table">
+            <thead>
+                <tr>
+                    <th>IP Address</th>
+                    <th>Total Starts</th>
+                    <th>Last Seen</th>
+                    <th>Version</th>
+                    <th>OS</th>
+                    <th>Location</th>
+                </tr>
+            </thead>
+            <tbody id="analytics-data">
+                <!-- Data will be loaded here -->
+            </tbody>
+        </table>
+    </div>
+
+    <div class="analytics-section">
+        <h3>📈 Version Distribution</h3>
+        <div id="version-chart"></div>
+    </div>
+
+    <script>
+        // Analytics data storage (simulated - in real implementation this would come from GitHub API or JSON files)
+        let analyticsData = [];
+        let currentVersion = 'v0.0.3';
+
+        // Load analytics data
+        async function loadAnalytics() {
+            try {
+                // In a real implementation, this would fetch from GitHub API or JSON files
+                // For now, we'll simulate some data
+                simulateData();
+                updateDashboard();
+                document.getElementById('status').className = 'success';
+                document.getElementById('status').textContent = 'Analytics loaded successfully';
+            } catch (error) {
+                document.getElementById('status').className = 'error';
+                document.getElementById('status').textContent = 'Error loading analytics: ' + error.message;
+            }
+        }
+
+        function simulateData() {
+            // This will be replaced with real data loading
+            analyticsData = [
+                {
+                    ip: '192.168.1.100',
+                    starts: 5,
+                    lastSeen: new Date().toISOString(),
+                    version: 'v0.0.3',
+                    os: 'Windows 10',
+                    country: 'US'
+                }
+            ];
+        }
+
+        function updateDashboard() {
+            // Update summary stats
+            const totalUsers = analyticsData.length;
+            const totalStarts = analyticsData.reduce((sum, user) => sum + user.starts, 0);
+            const activeToday = analyticsData.filter(user => {
+                const today = new Date();
+                const lastSeen = new Date(user.lastSeen);
+                return lastSeen.toDateString() === today.toDateString();
+            }).length;
+            const currentVersionUsers = analyticsData.filter(user => user.version === currentVersion).length;
+
+            document.getElementById('total-users').textContent = totalUsers;
+            document.getElementById('total-starts').textContent = totalStarts;
+            document.getElementById('active-today').textContent = activeToday;
+            document.getElementById('current-version-users').textContent = currentVersionUsers;
+
+            // Update table
+            const tbody = document.getElementById('analytics-data');
+            tbody.innerHTML = analyticsData.map(user => `
+                <tr>
+                    <td><code>${user.ip}</code></td>
+                    <td><strong>${user.starts}</strong></td>
+                    <td>${new Date(user.lastSeen).toLocaleString()}</td>
+                    <td><span class="version-badge">${user.version}</span></td>
+                    <td>${user.os}</td>
+                    <td><span class="country-flag">${getCountryFlag(user.country)}</span>${user.country}</td>
+                </tr>
+            `).join('');
+        }
+
+        function getCountryFlag(countryCode) {
+            const flags = {
+                'US': '🇺🇸',
+                'CA': '🇨🇦',
+                'GB': '🇬🇧',
+                'DE': '🇩🇪',
+                'FR': '🇫🇷',
+                'JP': '🇯🇵',
+                'AU': '🇦🇺'
+            };
+            return flags[countryCode] || '🌍';
+        }
+
+        // Track update check (this endpoint will be called by the app)
+        function trackUsage(data) {
+            // In real implementation, this would store data via GitHub API or commit to repo
+            console.log('Usage tracked:', data);
+        }
+
+        // Initialize
+        loadAnalytics();
+
+        // Auto-refresh every 5 minutes
+        setInterval(loadAnalytics, 5 * 60 * 1000);
+    </script>
+</body>
+</html>

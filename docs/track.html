@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FluidNC Analytics Tracker</title>
+    <script>
+        // This page is called by the application to track usage
+        // Since GitHub Pages is static, we use JavaScript to handle the data
+        
+        function trackUsage() {
+            try {
+                // Get URL parameters
+                const urlParams = new URLSearchParams(window.location.search);
+                const data = {
+                    version: urlParams.get('version') || 'unknown',
+                    os: urlParams.get('os') || 'unknown',
+                    platform: urlParams.get('platform') || 'unknown',
+                    locale: urlParams.get('locale') || 'unknown',
+                    timestamp: urlParams.get('timestamp') || new Date().toISOString(),
+                    first_run: urlParams.get('first_run') === 'true',
+                    ip: 'tracked_by_server', // Will be filled by server logs
+                    user_agent: navigator.userAgent
+                };
+                
+                // Store in localStorage for later retrieval by analytics dashboard
+                let analytics = JSON.parse(localStorage.getItem('fluidnc_analytics') || '{"users": {}, "summary": {"totalUsers": 0, "totalStarts": 0}}');
+                
+                // Generate a simple hash from IP (simulated) and user agent for user identification
+                const userHash = btoa(data.user_agent + data.os).substring(0, 16);
+                
+                if (!analytics.users[userHash]) {
+                    analytics.users[userHash] = {
+                        ip: 'simulated_' + userHash,
+                        starts: 0,
+                        firstSeen: data.timestamp,
+                        lastSeen: data.timestamp,
+                        version: data.version,
+                        os: data.os,
+                        platform: data.platform,
+                        locale: data.locale
+                    };
+                    analytics.summary.totalUsers++;
+                }
+                
+                analytics.users[userHash].starts++;
+                analytics.users[userHash].lastSeen = data.timestamp;
+                analytics.users[userHash].version = data.version; // Update to latest version used
+                analytics.summary.totalStarts++;
+                analytics.summary.lastUpdated = data.timestamp;
+                
+                localStorage.setItem('fluidnc_analytics', JSON.stringify(analytics));
+                
+                console.log('Usage tracked:', data);
+                
+                // For development: also log to console
+                if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                    console.log('FluidNC Analytics Data:', analytics);
+                }
+                
+            } catch (error) {
+                console.error('Error tracking usage:', error);
+            }
+        }
+        
+        // Track immediately when page loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', trackUsage);
+        } else {
+            trackUsage();
+        }
+    </script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            text-align: center;
+            padding: 50px 20px;
+        }
+        .status {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 30px;
+            background: #21262d;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+        }
+        .checkmark {
+            font-size: 48px;
+            color: #2ea043;
+            margin-bottom: 20px;
+        }
+        .info {
+            color: #8b949e;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        a {
+            color: #1f6feb;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="status">
+        <div class="checkmark">✓</div>
+        <h2>Usage Tracked Successfully</h2>
+        <p>Thank you for using FluidNC gCode Sender!</p>
+        <div class="info">
+            This endpoint tracks anonymous usage statistics to help improve the application.<br>
+            <a href="index.html">View Analytics Dashboard</a> | 
+            <a href="https://github.com/DanAla/FluidNC_gCodeSender">GitHub Repository</a>
+        </div>
+    </div>
+    
+    <script>
+        // Auto-close after 2 seconds if opened in browser
+        if (document.referrer === '' && window.location.search !== '') {
+            setTimeout(() => {
+                if (window.opener) {
+                    window.close();
+                } else {
+                    window.location.href = 'index.html';
+                }
+            }, 2000);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+title: FluidNC gCode Sender Analytics
+description: Usage analytics and update server for FluidNC gCode Sender
+theme: minima
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap
+
+# GitHub Pages settings
+github:
+  repository_url: https://github.com/DanAla/FluidNC_gCodeSender
+
+# Analytics settings
+google_analytics: # Add your GA tracking ID here if desired
+
+# Enable CORS for analytics endpoints
+headers:
+  "Access-Control-Allow-Origin": "*"
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
+  "Access-Control-Allow-Headers": "Content-Type"

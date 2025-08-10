@@ -8,6 +8,7 @@
 #include "gui/WelcomeDialog.h"
 #include "core/SimpleLogger.h"
 #include "core/ErrorHandler.h"
+#include "core/UpdateChecker.h"
 #include <wx/wx.h>
 
 bool FluidNCApp::OnInit()
@@ -30,6 +31,12 @@ bool FluidNCApp::OnInit()
         m_mainFrame->SetFocus();
         
         LOG_INFO("MainFrame displayed successfully");
+        
+        // Initialize and start update checking & analytics
+        LOG_INFO("Initializing update checker and analytics...");
+        UpdateManager::Initialize();
+        UpdateManager::TrackApplicationStart();
+        UpdateManager::CheckForUpdatesOnStartup();
         
         // Show welcome dialog if user hasn't disabled it
         WelcomeDialog::ShowWelcomeIfNeeded(m_mainFrame);
