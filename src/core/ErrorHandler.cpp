@@ -304,9 +304,10 @@ void ErrorDialog::OnCopyToClipboard(wxCommandEvent& WXUNUSED(event))
             copyBtn->SetBackgroundColour(wxColour(40, 167, 69)); // Green background
             copyBtn->SetForegroundColour(wxColour(255, 255, 255)); // Explicit white
             
-            // Make text bold for better readability
+            // Make text bold and larger for better readability
             wxFont font = copyBtn->GetFont();
             font.MakeBold();
+            font.SetPointSize(font.GetPointSize() + 2); // Increase size by 2 points
             copyBtn->SetFont(font);
             
             copyBtn->Enable(false); // Disable to prevent multiple clicks
