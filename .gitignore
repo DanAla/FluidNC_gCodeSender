@@ -263,3 +263,11 @@ _deps
 *.swo
 .DS_Store
 Thumbs.db
+
+# Documentation files (keep locally but not in repo, except README.md)
+BUILD_GUIDE_MINGW.md
+CONVERSION_SUMMARY.md
+README_CPP.md
+REDESIGNED_ARCHITECTURE.md
+RELEASE_NOTES_v0.0.1.md
+SETUP_FOR_YOUR_SYSTEM.md
