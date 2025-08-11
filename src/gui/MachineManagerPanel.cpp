@@ -359,8 +359,8 @@ void MachineManagerPanel::AttemptAutoConnect()
         if (mainFrame) {
             ConsolePanel* console = mainFrame->GetConsolePanel();
             if (console) {
-                console->SetActiveMachine(autoConnectMachine->id);
-                console->SetConnectionEnabled(true);
+                console->SetActiveMachine(autoConnectMachine->id, autoConnectMachine->name);
+                console->SetConnectionEnabled(true, autoConnectMachine->name);
             }
         }
         
@@ -562,7 +562,7 @@ void MachineManagerPanel::OnAddMachine(wxCommandEvent& WXUNUSED(event))
                             console->LogMessage("Machine ready for G-code commands", "INFO");
                             
                             // Enable command input now that machine is connected
-                            console->SetConnectionEnabled(true);
+                            console->SetConnectionEnabled(true, newMachine.name);
                         }
                     }
                     
@@ -736,7 +736,7 @@ void MachineManagerPanel::OnEditMachine(wxCommandEvent& WXUNUSED(event))
                             console->LogMessage("Machine ready for G-code commands", "INFO");
                             
                             // Enable command input now that machine is connected
-                            console->SetConnectionEnabled(true);
+                            console->SetConnectionEnabled(true, m_machines[selectedIndex].name);
                         }
                     }
                     
@@ -942,7 +942,7 @@ void MachineManagerPanel::OnConnect(wxCommandEvent& WXUNUSED(event))
                 console->LogMessage("Machine ready for G-code commands", "INFO");
                 
                 // Enable command input now that machine is connected
-                console->SetConnectionEnabled(true);
+                console->SetConnectionEnabled(true, selectedMachine->name);
             }
         }
         

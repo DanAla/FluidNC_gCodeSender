@@ -13,6 +13,7 @@
 #include <vector>
 #include <string>
 #include <deque>
+#include <fstream>
 
 /**
  * Terminal Panel - real-time machine communication interface
@@ -30,6 +31,7 @@ class ConsolePanel : public wxPanel
 {
 public:
     ConsolePanel(wxWindow* parent);
+    ~ConsolePanel();
     
     // Message logging
     void LogMessage(const std::string& message, const std::string& level = "INFO");
@@ -49,10 +51,10 @@ public:
     void SetShowLevel(const std::string& level, bool show);
     
     // Connection status
-    void SetConnectionEnabled(bool connected);
+    void SetConnectionEnabled(bool connected, const std::string& machineName = "");
     
     // Real communication integration
-    void SetActiveMachine(const std::string& machineId);
+    void SetActiveMachine(const std::string& machineId, const std::string& machineName = "");
 
 private:
     // Event handlers
@@ -96,6 +98,12 @@ private:
     // Special character processing for terminal functionality
     std::string ProcessSpecialCharacters(const std::string& input) const;
     
+    // Session logging
+    void StartSessionLog(const std::string& machineId, const std::string& machineName = "");
+    void StopSessionLog();
+    void WriteToSessionLog(const std::string& timestamp, const std::string& level, const std::string& message);
+    std::string GetSessionLogPath(const std::string& machineName, const std::string& timestamp) const;
+    
     // Log entry structure
     struct LogEntry {
         std::string timestamp;
@@ -132,6 +140,7 @@ private:
     std::vector<std::string> m_commandHistoryData;
     std::string m_currentMachine;
     std::string m_activeMachine;  // Currently active machine for sending commands
+    std::string m_currentMachineName;  // Human-readable name of current machine
     std::string m_currentFilter;
     
     // Display settings
@@ -146,6 +155,14 @@ private:
     int m_historyIndex;
     bool m_historyExpanded;
     std::string m_currentCommand;
+    
+    // Session logging
+    std::ofstream m_sessionLogFile;
+    std::string m_sessionLogPath;
+    std::string m_sessionMachineId;
+    std::string m_sessionMachineName;
+    std::string m_sessionStartTime;
+    bool m_sessionLogActive;
     
     // Limits
     static const size_t MAX_LOG_ENTRIES = 1000;

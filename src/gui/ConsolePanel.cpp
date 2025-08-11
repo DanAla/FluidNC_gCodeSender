@@ -11,6 +11,8 @@
 #include <wx/filedlg.h>
 #include <wx/datetime.h>
 #include <wx/notebook.h>
+#include <wx/filename.h>
+#include <algorithm>
 
 // Control IDs
 enum {
@@ -62,12 +64,25 @@ ConsolePanel::ConsolePanel(wxWindow* parent)
     m_historyExpanded = false;
     m_currentCommand = "";
     
+    // Initialize session logging
+    m_sessionLogActive = false;
+    m_sessionMachineId = "";
+    m_sessionMachineName = "";
+    m_sessionStartTime = "";
+    m_sessionLogPath = "";
+    
     CreateControls();
     LoadCommandHistory();
     
     // Initialize with clean terminal - ready for real machine communication
     LogMessage("Terminal Console initialized - ready for machine connection", "INFO");
     LogMessage("Select a machine in Machine Manager and connect to begin communication", "INFO");
+}
+
+ConsolePanel::~ConsolePanel()
+{
+    // Ensure session log is properly closed on destruction
+    StopSessionLog();
 }
 
 void ConsolePanel::CreateControls()
@@ -212,6 +227,9 @@ void ConsolePanel::AddLogEntry(const std::string& timestamp, const std::string& 
         m_logEntries.pop_front();
     }
     
+    // Write to session log if active
+    WriteToSessionLog(timestamp, level, message);
+    
     UpdateLogDisplay();
 }
 
@@ -350,10 +368,14 @@ void ConsolePanel::SetMachine(const std::string& machineId)
     LogMessage("Switched to machine: " + machineId, "INFO");
 }
 
-void ConsolePanel::SetActiveMachine(const std::string& machineId)
+void ConsolePanel::SetActiveMachine(const std::string& machineId, const std::string& machineName)
 {
     m_activeMachine = machineId;
-    LogMessage("Active machine for commands: " + machineId, "INFO");
+    std::string displayName = machineName.empty() ? machineId : machineName;
+    LogMessage("Active machine for commands: " + displayName, "INFO");
+    
+    // Store the machine name for use in logging
+    m_currentMachineName = displayName;
 }
 
 void ConsolePanel::SetFilter(const std::string& filter)
@@ -382,16 +404,24 @@ void ConsolePanel::SetShowLevel(const std::string& level, bool show)
     UpdateLogDisplay();
 }
 
-void ConsolePanel::SetConnectionEnabled(bool connected)
+void ConsolePanel::SetConnectionEnabled(bool connected, const std::string& machineName)
 {
     if (m_commandInput && m_sendBtn) {
         m_commandInput->Enable(connected);
         m_sendBtn->Enable(connected);
         
         if (connected) {
+            // Start session log when machine connects
+            if (!m_activeMachine.empty()) {
+                // Use the provided machine name if available, otherwise fall back to machine ID
+                std::string displayName = machineName.empty() ? m_activeMachine : machineName;
+                StartSessionLog(m_activeMachine, displayName);
+            }
             LogMessage("Machine connected - command input enabled", "INFO");
         } else {
             LogMessage("Machine disconnected - command input disabled", "INFO");
+            // Stop session log when machine disconnects
+            StopSessionLog();
         }
     }
 }
@@ -713,4 +743,106 @@ std::string ConsolePanel::ProcessSpecialCharacters(const std::string& input) con
 void ConsolePanel::SaveCommandHistory()
 {
     // TODO: Implement command history persistence
+}
+
+// Session logging implementation
+void ConsolePanel::StartSessionLog(const std::string& machineId, const std::string& machineName)
+{
+    // Stop any existing session log
+    StopSessionLog();
+    
+    m_sessionMachineId = machineId;
+    m_sessionMachineName = machineName.empty() ? machineId : machineName;
+    
+    // Get current timestamp for session start and filename
+    wxDateTime now = wxDateTime::Now();
+    m_sessionStartTime = now.Format("%Y-%m-%d_%H-%M-%S").ToStdString();
+    
+    // Create session log file path
+    m_sessionLogPath = GetSessionLogPath(m_sessionMachineName, m_sessionStartTime);
+    
+    // Create logs directory if it doesn't exist
+    wxString logDir = wxFileName(m_sessionLogPath).GetPath();
+    if (!wxDirExists(logDir)) {
+        wxMkdir(logDir);
+    }
+    
+    // Open the session log file
+    m_sessionLogFile.open(m_sessionLogPath, std::ios::out | std::ios::app);
+    
+    if (m_sessionLogFile.is_open()) {
+        m_sessionLogActive = true;
+        
+        // Write session header
+        std::string sessionHeader = "=== FluidNC Terminal Session Log ===\n";
+        sessionHeader += "Machine ID: " + m_sessionMachineId + "\n";
+        sessionHeader += "Machine Name: " + m_sessionMachineName + "\n";
+        sessionHeader += "Session Started: " + now.Format("%Y-%m-%d %H:%M:%S").ToStdString() + "\n";
+        sessionHeader += "=====================================\n\n";
+        
+        m_sessionLogFile << sessionHeader;
+        m_sessionLogFile.flush();
+        
+        LogMessage("Session log started: " + m_sessionLogPath, "INFO");
+    } else {
+        LogError("Failed to create session log file: " + m_sessionLogPath);
+        m_sessionLogActive = false;
+    }
+}
+
+void ConsolePanel::StopSessionLog()
+{
+    if (m_sessionLogActive && m_sessionLogFile.is_open()) {
+        // Write session footer
+        wxDateTime now = wxDateTime::Now();
+        std::string sessionFooter = "\n=====================================\n";
+        sessionFooter += "Session Ended: " + now.Format("%Y-%m-%d %H:%M:%S").ToStdString() + "\n";
+        sessionFooter += "=== End of FluidNC Terminal Session ===\n";
+        
+        m_sessionLogFile << sessionFooter;
+        m_sessionLogFile.flush();
+        m_sessionLogFile.close();
+        
+        LogMessage("Session log stopped and saved: " + m_sessionLogPath, "INFO");
+        
+        m_sessionLogActive = false;
+        m_sessionLogPath.clear();
+        m_sessionMachineId.clear();
+        m_sessionMachineName.clear();
+        m_sessionStartTime.clear();
+    }
+}
+
+void ConsolePanel::WriteToSessionLog(const std::string& timestamp, const std::string& level, const std::string& message)
+{
+    if (m_sessionLogActive && m_sessionLogFile.is_open()) {
+        std::string logLine = "[" + timestamp + "] [" + level + "] " + message + "\n";
+        m_sessionLogFile << logLine;
+        m_sessionLogFile.flush(); // Ensure immediate write for real-time logging
+    }
+}
+
+std::string ConsolePanel::GetSessionLogPath(const std::string& machineName, const std::string& timestamp) const
+{
+    // Create logs directory in the application directory
+    wxString appDir = wxGetCwd();
+    wxString logsDir = appDir + wxFILE_SEP_PATH + "logs";
+    
+    // Clean machine name for use in filename (remove invalid filename characters)
+    std::string cleanMachineName = machineName;
+    std::replace(cleanMachineName.begin(), cleanMachineName.end(), ':', '_');
+    std::replace(cleanMachineName.begin(), cleanMachineName.end(), '/', '_');
+    std::replace(cleanMachineName.begin(), cleanMachineName.end(), '\\', '_');
+    std::replace(cleanMachineName.begin(), cleanMachineName.end(), ' ', '-');
+    std::replace(cleanMachineName.begin(), cleanMachineName.end(), '<', '_');
+    std::replace(cleanMachineName.begin(), cleanMachineName.end(), '>', '_');
+    std::replace(cleanMachineName.begin(), cleanMachineName.end(), '|', '_');
+    std::replace(cleanMachineName.begin(), cleanMachineName.end(), '?', '_');
+    std::replace(cleanMachineName.begin(), cleanMachineName.end(), '*', '_');
+    std::replace(cleanMachineName.begin(), cleanMachineName.end(), '"', '_');
+    
+    // Create filename: MachineName_YYYY-MM-DD_HH-MM-SS.log
+    std::string filename = cleanMachineName + "_" + timestamp + ".log";
+    
+    return (logsDir + wxFILE_SEP_PATH + filename).ToStdString();
 }

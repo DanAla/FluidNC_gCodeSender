@@ -858,9 +858,10 @@ void MainFrame::SetupCommunicationCallbacks()
     CommunicationManager& commMgr = CommunicationManager::Instance();
     
     // Message callback - logs general messages to console
-    commMgr.SetMessageCallback([console](const std::string& machineId, const std::string& message, const std::string& level) {
-        console->LogMessage("[" + machineId + "] " + message, level);
-    });
+    // Note: Message callback now handled by MachineManagerPanel with machine names
+    // commMgr.SetMessageCallback([console](const std::string& machineId, const std::string& message, const std::string& level) {
+    //     console->LogMessage("[" + machineId + "] " + message, level);
+    // });
     
     // Command sent callback - logs sent commands to console
     commMgr.SetCommandSentCallback([console](const std::string& machineId, const std::string& command) {
@@ -877,16 +878,28 @@ void MainFrame::SetupCommunicationCallbacks()
         // Update status bar
         UpdateConnectionStatus(machineId, connected);
         
-        // Update console connection state
-        console->SetConnectionEnabled(connected);
+        // Note: console connection state is managed by MachineManagerPanel with machine names
         
         if (connected) {
             // Set the connected machine as active for console commands
-            console->SetActiveMachine(machineId);
-            console->LogMessage("=== MACHINE CONNECTED ===", "INFO");
-            console->LogMessage("Machine ID: " + machineId, "INFO");
-            console->LogMessage("Status: READY - Machine is active and awaiting commands", "INFO");
-            console->LogMessage("=== END CONNECTION INFO ===", "INFO");
+            // Look up machine name from machine manager
+            std::string machineName = "Unknown Machine";
+            PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
+            if (machineManagerInfo) {
+                MachineManagerPanel* machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
+                if (machineManager) {
+                    // Get machine name from machine manager panel
+                    const auto& machines = machineManager->GetMachines();
+                    for (const auto& machine : machines) {
+                        if (machine.id == machineId) {
+                            machineName = machine.name;
+                            break;
+                        }
+                    }
+                }
+            }
+            console->SetActiveMachine(machineId, machineName);
+            // Note: Machine name and detailed connection logging is handled by MachineManagerPanel
         } else {
             console->LogMessage("=== MACHINE DISCONNECTED ===", "WARNING");
             console->LogMessage("Machine ID: " + machineId, "INFO");

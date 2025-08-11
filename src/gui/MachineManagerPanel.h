@@ -24,6 +24,19 @@
 class MachineManagerPanel : public wxPanel
 {
 public:
+    // Machine configurations structure
+    struct MachineConfig {
+        std::string id;
+        std::string name;
+        std::string description;
+        std::string host;
+        int port;
+        std::string machineType;
+        bool connected;
+        std::string lastConnected;
+        bool autoConnect;
+    };
+    
     MachineManagerPanel(wxWindow* parent);
     
     // Machine management
@@ -33,6 +46,9 @@ public:
     
     // Auto-connect functionality
     void AttemptAutoConnect();
+    
+    // Data access
+    const std::vector<MachineConfig>& GetMachines() const { return m_machines; }
 
 private:
     // Event handlers
@@ -97,19 +113,7 @@ private:
     // Current selection
     std::string m_selectedMachine;
     
-    // Machine configurations (dummy data for now)
-    struct MachineConfig {
-        std::string id;
-        std::string name;
-        std::string description;
-        std::string host;
-        int port;
-        std::string machineType;
-        bool connected;
-        std::string lastConnected;
-        bool autoConnect;
-    };
-    
+    // Machine configurations
     std::vector<MachineConfig> m_machines;
     
     wxDECLARE_EVENT_TABLE();
