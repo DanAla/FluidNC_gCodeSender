@@ -227,12 +227,26 @@ void FluidNCClient::connect()
 #else
         if (inet_aton(m_host.c_str(), &serverAddr.sin_addr) == 0) {
 #endif
-            // Host is not an IP address, would need hostname resolution
-            std::cerr << "Hostname resolution not implemented, use IP address" << std::endl;
-            closeSocket();
-            if (!m_autoReconnect.load()) break;
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-            continue;
+            // Host is not an IP address, try hostname resolution
+            struct addrinfo hints, *result;
+            memset(&hints, 0, sizeof(hints));
+            hints.ai_family = AF_INET; // IPv4
+            hints.ai_socktype = SOCK_STREAM;
+            
+            int status = getaddrinfo(m_host.c_str(), nullptr, &hints, &result);
+            if (status != 0 || result == nullptr) {
+                std::cerr << "Failed to resolve hostname: " << m_host << std::endl;
+                closeSocket();
+                if (!m_autoReconnect.load()) break;
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                continue;
+            }
+            
+            // Use the first result
+            struct sockaddr_in* addr_in = reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
+            serverAddr.sin_addr = addr_in->sin_addr;
+            
+            freeaddrinfo(result);
         }
         
         if (::connect(m_socket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) == SOCKET_ERROR) {
@@ -253,6 +267,11 @@ void FluidNCClient::connect()
 
 void FluidNCClient::handleLine(const std::string& line)
 {
+    // Forward all responses to the communication manager
+    if (m_onResponse) {
+        m_onResponse(line);
+    }
+    
     // Parse FluidNC status messages like <Idle|MPos:0.000,0.000,0.000|WPos:0.000,0.000,0.000|F:0>
     if (line.length() >= 2 && line[0] == '<' && line.back() == '>') {
         std::string content = line.substr(1, line.length() - 2);

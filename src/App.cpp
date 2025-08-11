@@ -11,6 +11,10 @@
 #include "core/UpdateChecker.h"
 #include <wx/wx.h>
 
+#ifdef __WXMSW__
+#include <windows.h>
+#endif
+
 bool FluidNCApp::OnInit()
 {
     // Initialize error handling FIRST - before anything else
@@ -29,6 +33,23 @@ bool FluidNCApp::OnInit()
         m_mainFrame->Center();
         m_mainFrame->Raise();
         m_mainFrame->SetFocus();
+        
+        // Force bring window to foreground on Windows
+#ifdef __WXMSW__
+        // Get the window handle
+        HWND hwnd = (HWND)m_mainFrame->GetHandle();
+        
+        // If window is minimized, restore it
+        if (IsIconic(hwnd)) {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+        
+        // Force the window to be foreground with stronger Windows API
+        SetForegroundWindow(hwnd);
+        
+        // Request user attention - flashes in taskbar
+        m_mainFrame->RequestUserAttention(wxUSER_ATTENTION_ERROR);
+#endif
         
         LOG_INFO("MainFrame displayed successfully");
         

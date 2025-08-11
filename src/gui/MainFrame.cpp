@@ -18,6 +18,8 @@
 #include "core/Version.h"
 #include "core/BuildCounter.h"
 #include "core/ErrorHandler.h"
+#include "core/CommunicationManager.h"
+#include "core/StateManager.h"
 #include <wx/msgdlg.h>
 #include <wx/menu.h>
 #include <wx/statusbr.h>
@@ -32,6 +34,7 @@
 enum {
     ID_SHOW_WELCOME = wxID_HIGHEST + 1,
     ID_TEST_ERROR_HANDLER,
+    ID_TEST_NOTIFICATION_SYSTEM,
     // Window menu items
     ID_WINDOW_DRO,
     ID_WINDOW_JOG,
@@ -50,6 +53,7 @@ wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
     EVT_MENU(wxID_ABOUT, MainFrame::OnAbout)
     EVT_MENU(ID_SHOW_WELCOME, MainFrame::OnShowWelcome)
     EVT_MENU(ID_TEST_ERROR_HANDLER, MainFrame::OnTestErrorHandler)
+    EVT_MENU(ID_TEST_NOTIFICATION_SYSTEM, MainFrame::OnTestNotificationSystem)
     // Window menu events
     EVT_MENU(ID_WINDOW_DRO, MainFrame::OnWindowDRO)
     EVT_MENU(ID_WINDOW_JOG, MainFrame::OnWindowJog)
@@ -69,6 +73,7 @@ MainFrame::MainFrame()
     , m_machineToolbar(nullptr) 
     , m_fileToolbar(nullptr)
 {
+    
     // Initialize AUI manager
     m_auiManager.SetManagedWindow(this);
     
@@ -94,12 +99,32 @@ MainFrame::MainFrame()
     // Initialize notification system
     NotificationSystem::Instance().SetParentWindow(this);
     
+    // Set up CommunicationManager callbacks for real machine communication
+    SetupCommunicationCallbacks();
+    
+    // Attempt auto-connect if configured
+    CallAfter([this]() {
+        PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
+        if (machineManagerInfo) {
+            MachineManagerPanel* machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
+            if (machineManager) {
+                // Trigger auto-connect check
+                machineManager->AttemptAutoConnect();
+            }
+        }
+    });
+    
     // Show connection-focused welcome message
     NOTIFY_INFO("Connect to Machine", "Please connect to a CNC machine to begin using FluidNC gCode Sender.");
     
     // Explain the connection-first approach
     CallAfter([this]() {
         NOTIFY_WARNING("Connection Required", "Most features are disabled until you connect to a machine. Use Machine Manager to connect.");
+    });
+    
+    // Restore window geometry after everything is initialized
+    CallAfter([this]() {
+        RestoreWindowGeometry();
     });
 }
 
@@ -139,6 +164,7 @@ void MainFrame::CreateMenuBar()
     helpMenu->Append(ID_SHOW_WELCOME, "Show &Welcome Dialog", "Show the welcome dialog again");
     helpMenu->AppendSeparator();
     helpMenu->Append(ID_TEST_ERROR_HANDLER, "&Test Error Handler", "Test the error handling system");
+    helpMenu->Append(ID_TEST_NOTIFICATION_SYSTEM, "Test &Notification System", "Test the notification system");
     helpMenu->AppendSeparator();
     helpMenu->Append(wxID_ABOUT, "&About\tF1", "Show about dialog");
     menuBar->Append(helpMenu, "&Help");
@@ -209,6 +235,76 @@ void MainFrame::OnTestErrorHandler(wxCommandEvent& WXUNUSED(event))
     }
 }
 
+void MainFrame::OnTestNotificationSystem(wxCommandEvent& WXUNUSED(event))
+{
+    // First, let's test if the parent window is set
+    wxWindow* parent = NotificationSystem::Instance().GetParentWindow();
+    wxString debugMsg = wxString::Format("NotificationSystem Debug: Parent window: %p, This window: %p", parent, this);
+    LOG_INFO(debugMsg.ToStdString());
+    
+    // For now, let's go back to the simple approach but make it repeatable
+    while (true) {
+        wxString choice[] = {
+            "Test Info Notification",
+            "Test Success Notification", 
+            "Test Warning Notification",
+            "Test Error Notification",
+            "Test Multiple Notifications",
+            "Test Long Message Notification",
+            "Exit Tests"
+        };
+        
+        wxSingleChoiceDialog dialog(this, "Choose notification type to test (or Exit to close):", "Notification System Test", 7, choice);
+        
+        if (dialog.ShowModal() != wxID_OK) {
+            break; // User cancelled
+        }
+        
+        int selection = dialog.GetSelection();
+        
+        if (selection == 6) { // Exit Tests
+            break;
+        }
+        
+        switch (selection) {
+            case 0:
+                LOG_INFO("Testing Info notification...");
+                NOTIFY_INFO("Test Information", "This is a test information notification. It should appear in the top-right corner and auto-dismiss after 5 seconds.");
+                break;
+                
+            case 1:
+                LOG_INFO("Testing Success notification...");
+                NOTIFY_SUCCESS("Test Success", "This is a test success notification. Perfect for confirming completed operations.");
+                break;
+                
+            case 2:
+                LOG_INFO("Testing Warning notification...");
+                NOTIFY_WARNING("Test Warning", "This is a test warning notification. It stays visible a bit longer to ensure the user sees important warnings.");
+                break;
+                
+            case 3:
+                LOG_INFO("Testing Error notification...");
+                NOTIFY_ERROR("Test Error", "This is a test error notification. Error notifications have the longest duration and use red colors to draw attention.");
+                break;
+                
+            case 4:
+                LOG_INFO("Testing Multiple notifications...");
+                NOTIFY_INFO("First Notification", "This is the first notification in a sequence.");
+                wxMilliSleep(200);
+                NOTIFY_SUCCESS("Second Notification", "This is the second notification, stacked below the first.");
+                wxMilliSleep(200);
+                NOTIFY_WARNING("Third Notification", "This is the third notification in the stack.");
+                break;
+                
+            case 5:
+                LOG_INFO("Testing Long message notification...");
+                NOTIFY_INFO("Long Message Test", 
+                    "This is a test of a longer notification message to demonstrate how the notification system handles text wrapping and larger content areas. The notification should automatically resize to accommodate the longer text while maintaining proper formatting and readability. The close button should remain easily accessible.");
+                break;
+        }
+    }
+}
+
 void MainFrame::OnClose(wxCloseEvent& WXUNUSED(event))
 {
     try {
@@ -268,12 +364,8 @@ void MainFrame::ResetLayout() {
         }
     }
     
-    // Re-add all default visible panels
-    for (auto& panelInfo : m_panels) {
-        if (panelInfo.defaultVisible) {
-            AddPanelToAui(panelInfo);
-        }
-    }
+    // Use connection-first layout as the default
+    SetupConnectionFirstLayout();
     
     m_auiManager.Update();
     UpdateMenuItems();
@@ -294,6 +386,15 @@ void MainFrame::LoadSavedLayout() {
     // if (!perspective.IsEmpty()) {
     //     m_auiManager.LoadPerspective(perspective, true);
     // }
+}
+
+// Panel access methods
+ConsolePanel* MainFrame::GetConsolePanel() const {
+    PanelInfo* panelInfo = const_cast<MainFrame*>(this)->FindPanelInfo(PANEL_CONSOLE);
+    if (panelInfo) {
+        return dynamic_cast<ConsolePanel*>(panelInfo->panel);
+    }
+    return nullptr;
 }
 
 void MainFrame::UpdateMachineStatus(const std::string& machineId, const std::string& status) {
@@ -361,13 +462,95 @@ void MainFrame::OnWindowResetLayout(wxCommandEvent& WXUNUSED(event)) {
 
 void MainFrame::RestoreWindowGeometry()
 {
-    // Simplified - just use default positioning for now
-    Center();
+    try {
+        // Get the saved window layout from StateManager
+        WindowLayout layout = StateManager::getInstance().getWindowLayout("MainFrame");
+        
+        // If we have a saved layout, restore it
+        if (layout.windowId == "MainFrame" && layout.width > 0 && layout.height > 0) {
+            // Validate the position is on screen
+            wxRect displayRect = wxGetDisplaySize();
+            
+            // Ensure window fits on screen
+            int x = std::max(0, std::min(layout.x, displayRect.GetWidth() - layout.width));
+            int y = std::max(0, std::min(layout.y, displayRect.GetHeight() - layout.height));
+            
+            // Ensure minimum size
+            int width = std::max(400, layout.width);
+            int height = std::max(300, layout.height);
+            
+            // Set position and size
+            SetPosition(wxPoint(x, y));
+            SetSize(wxSize(width, height));
+            
+            // Handle maximized state
+            if (layout.maximized) {
+                Maximize(true);
+            }
+            
+            LOG_INFO("Restored MainFrame geometry: " + std::to_string(x) + "," + std::to_string(y) + " " + std::to_string(width) + "x" + std::to_string(height));
+            
+            // If position was corrected, save the corrected values immediately
+            if (x != layout.x || y != layout.y) {
+                CallAfter([this]() {
+                    SaveWindowGeometry(); // Save the corrected position
+                });
+            }
+        } else {
+            // No saved layout, use defaults
+            SetSize(1200, 800);
+            Center();
+            LOG_INFO("Using default MainFrame geometry (no saved layout found)");
+        }
+    } catch (const std::exception& e) {
+        // If restoration fails, fall back to defaults
+        SetSize(1200, 800);
+        Center();
+        LOG_ERROR("Failed to restore MainFrame geometry: " + std::string(e.what()) + " - using defaults");
+    }
 }
 
 void MainFrame::SaveWindowGeometry()
 {
-    // Simplified - no state saving for now
+    try {
+        WindowLayout layout;
+        layout.windowId = "MainFrame";
+        
+        // Get current window state
+        layout.maximized = IsMaximized();
+        
+        if (!layout.maximized) {
+            // Only save position/size if not maximized
+            wxPoint pos = GetPosition();
+            wxSize size = GetSize();
+            
+            layout.x = pos.x;
+            layout.y = pos.y;
+            layout.width = size.GetWidth();
+            layout.height = size.GetHeight();
+        } else {
+            // For maximized window, save the normal (restored) size
+            wxRect normalRect = GetRect();
+            layout.x = normalRect.x;
+            layout.y = normalRect.y;
+            layout.width = normalRect.width;
+            layout.height = normalRect.height;
+        }
+        
+        layout.visible = IsShown();
+        layout.docked = false; // MainFrame is never docked
+        layout.dockingSide = "center";
+        
+        // Save to StateManager
+        StateManager::getInstance().saveWindowLayout(layout);
+        
+        LOG_INFO("Saved MainFrame geometry: " + std::to_string(layout.x) + "," + std::to_string(layout.y) + 
+                " " + std::to_string(layout.width) + "x" + std::to_string(layout.height) + 
+                (layout.maximized ? " (maximized)" : ""));
+                
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to save MainFrame geometry: " + std::string(e.what()));
+    }
 }
 
 // AUI-based panel creation
@@ -379,80 +562,80 @@ void MainFrame::CreatePanels()
     try {
         // Create panels as direct children of the main frame
         
-        // G-Code Editor - center panel
+        // G-Code Editor
         PanelInfo gcodeInfo;
         gcodeInfo.id = PANEL_GCODE_EDITOR;
         gcodeInfo.name = "gcode_editor";
         gcodeInfo.title = "G-code Editor";
         gcodeInfo.panel = new GCodeEditor(this);
-        gcodeInfo.defaultVisible = true;
-        gcodeInfo.defaultPosition = "center";
+        gcodeInfo.defaultVisible = false;  // No default visibility - state dependent
+        gcodeInfo.defaultPosition = "";     // No default position - state dependent
         gcodeInfo.defaultSize = wxSize(600, 400);
         m_panels.push_back(gcodeInfo);
         
-        // DRO Panel - left docking area
+        // DRO Panel
         PanelInfo droInfo;
         droInfo.id = PANEL_DRO;
         droInfo.name = "dro";
         droInfo.title = "Digital Readout";
         droInfo.panel = new DROPanel(this, nullptr); // nullptr for ConnectionManager
-        droInfo.defaultVisible = true;
-        droInfo.defaultPosition = "left";
+        droInfo.defaultVisible = false;  // No default visibility - state dependent
+        droInfo.defaultPosition = "";     // No default position - state dependent
         droInfo.defaultSize = wxSize(250, 200);
         m_panels.push_back(droInfo);
         
-        // Jog Panel - left docking area (below DRO)
+        // Jog Panel
         PanelInfo jogInfo;
         jogInfo.id = PANEL_JOG;
         jogInfo.name = "jog";
         jogInfo.title = "Jogging Controls";
         jogInfo.panel = new JogPanel(this, nullptr); // nullptr for ConnectionManager
-        jogInfo.defaultVisible = true;
-        jogInfo.defaultPosition = "left";
+        jogInfo.defaultVisible = false;  // No default visibility - state dependent
+        jogInfo.defaultPosition = "";     // No default position - state dependent
         jogInfo.defaultSize = wxSize(250, 300);
         m_panels.push_back(jogInfo);
         
-        // Console Panel - bottom docking area
+        // Console Panel
         PanelInfo consoleInfo;
         consoleInfo.id = PANEL_CONSOLE;
         consoleInfo.name = "console";
         consoleInfo.title = "Terminal Console";
         consoleInfo.panel = new ConsolePanel(this);
-        consoleInfo.defaultVisible = true;
-        consoleInfo.defaultPosition = "bottom";
+        consoleInfo.defaultVisible = false;  // No default visibility - state dependent
+        consoleInfo.defaultPosition = "";      // No default position - state dependent
         consoleInfo.defaultSize = wxSize(800, 150);
         m_panels.push_back(consoleInfo);
         
-        // Machine Manager Panel - right docking area
+        // Machine Manager Panel
         PanelInfo machineInfo;
         machineInfo.id = PANEL_MACHINE_MANAGER;
         machineInfo.name = "machine_manager";
         machineInfo.title = "Machine Manager";
         machineInfo.panel = new MachineManagerPanel(this);
-        machineInfo.defaultVisible = true;
-        machineInfo.defaultPosition = "right";
+        machineInfo.defaultVisible = false;  // No default visibility - state dependent
+        machineInfo.defaultPosition = "";      // No default position - state dependent
         machineInfo.defaultSize = wxSize(300, 400);
         m_panels.push_back(machineInfo);
         
-        // Macro Panel - right docking area (below machine manager)
+        // Macro Panel
         PanelInfo macroInfo;
         macroInfo.id = PANEL_MACRO;
         macroInfo.name = "macro";
         macroInfo.title = "Macro Panel";
         macroInfo.panel = new MacroPanel(this);
-        macroInfo.defaultVisible = true;
-        macroInfo.defaultPosition = "right";
+        macroInfo.defaultVisible = false;  // No default visibility - state dependent
+        macroInfo.defaultPosition = "";      // No default position - state dependent
         macroInfo.defaultSize = wxSize(300, 200);
         m_panels.push_back(macroInfo);
         
-        // SVG Viewer - initially hidden, will be center when shown
+        // SVG Viewer
         PanelInfo svgInfo;
         svgInfo.id = PANEL_SVG_VIEWER;
         svgInfo.name = "svg_viewer";
         svgInfo.title = "SVG Viewer";
         svgInfo.panel = new SVGViewer(this);
-        svgInfo.defaultVisible = false;
-        svgInfo.defaultPosition = "center";
+        svgInfo.defaultVisible = false;  // No default visibility - state dependent
+        svgInfo.defaultPosition = "";      // No default position - state dependent
         svgInfo.defaultSize = wxSize(400, 400);
         m_panels.push_back(svgInfo);
         
@@ -578,22 +761,41 @@ void MainFrame::SetupConnectionFirstLayout()
     // Only show Machine Manager and Console on startup
     // Hide all other panels until machine is connected
     for (auto& panelInfo : m_panels) {
-        if (panelInfo.id == PANEL_MACHINE_MANAGER || panelInfo.id == PANEL_CONSOLE) {
-            // Show connection-essential panels
-            AddPanelToAui(panelInfo);
+        if (panelInfo.id == PANEL_MACHINE_MANAGER) {
+            // Add Machine Manager panel on left side - 40% width
+            wxAuiPaneInfo paneInfo;
+            paneInfo.Name(panelInfo.name)
+                   .Caption(panelInfo.title)
+                   .BestSize(480, 600)
+                   .MinSize(300, 400)
+                   .CloseButton(panelInfo.canClose)
+                   .MaximizeButton(true)
+                   .MinimizeButton(false)
+                   .PinButton(true)
+                   .Dock()
+                   .Resizable(true)
+                   .Left()      // Dock to left side
+                   .Layer(0)    // Base layer
+                   .Row(0);     // First row
+            m_auiManager.AddPane(panelInfo.panel, paneInfo);
+        } else if (panelInfo.id == PANEL_CONSOLE) {
+            // Add Console panel to fill center - 60% width
+            wxAuiPaneInfo paneInfo;
+            paneInfo.Name(panelInfo.name)
+                   .Caption(panelInfo.title)
+                   .BestSize(720, 600)
+                   .MinSize(400, 150)
+                   .CloseButton(panelInfo.canClose)
+                   .MaximizeButton(true)
+                   .MinimizeButton(false)
+                   .PinButton(true)
+                   .Dock()
+                   .Resizable(true)
+                   .CenterPane() // Fill the center area (remaining space)
+                   .Layer(0);    // Same layer as machine manager
+            m_auiManager.AddPane(panelInfo.panel, paneInfo);
         }
         // All other panels remain hidden until connection is established
-    }
-    
-    // Customize the layout for connection workflow
-    wxAuiPaneInfo& machinePane = m_auiManager.GetPane("machine_manager");
-    if (machinePane.IsOk()) {
-        machinePane.Center().Layer(0).Position(0).BestSize(600, 400);
-    }
-    
-    wxAuiPaneInfo& consolePane = m_auiManager.GetPane("console");
-    if (consolePane.IsOk()) {
-        consolePane.Bottom().Layer(1).Position(0).BestSize(800, 200);
     }
 }
 
@@ -622,18 +824,84 @@ void MainFrame::AddPanelToAui(PanelInfo& panelInfo)
            .Resizable(true)
            .FloatingSize(panelInfo.defaultSize);
     
-    // Set docking position
-    if (panelInfo.defaultPosition == "left") {
-        paneInfo.Left().Layer(1);
-    } else if (panelInfo.defaultPosition == "right") {
-        paneInfo.Right().Layer(1);
-    } else if (panelInfo.defaultPosition == "top") {
-        paneInfo.Top().Layer(1);
-    } else if (panelInfo.defaultPosition == "bottom") {
-        paneInfo.Bottom().Layer(1);
-    } else { // center
+    // Set docking position (only if defaultPosition is set)
+    if (!panelInfo.defaultPosition.empty()) {
+        if (panelInfo.defaultPosition == "left") {
+            paneInfo.Left().Layer(1);
+        } else if (panelInfo.defaultPosition == "right") {
+            paneInfo.Right().Layer(1);
+        } else if (panelInfo.defaultPosition == "top") {
+            paneInfo.Top().Layer(1);
+        } else if (panelInfo.defaultPosition == "bottom") {
+            paneInfo.Bottom().Layer(1);
+        } else { // center
+            paneInfo.Center().Layer(0);
+        }
+    } else {
+        // No default position - use center as fallback
         paneInfo.Center().Layer(0);
     }
     
     m_auiManager.AddPane(panelInfo.panel, paneInfo);
+}
+
+// Setup communication callbacks for real machine communication
+void MainFrame::SetupCommunicationCallbacks()
+{
+    ConsolePanel* console = GetConsolePanel();
+    if (!console) {
+        LOG_ERROR("ConsolePanel not available for communication callbacks");
+        return;
+    }
+    
+    // Set up CommunicationManager callbacks to integrate GUI with real machine communication
+    CommunicationManager& commMgr = CommunicationManager::Instance();
+    
+    // Message callback - logs general messages to console
+    commMgr.SetMessageCallback([console](const std::string& machineId, const std::string& message, const std::string& level) {
+        console->LogMessage("[" + machineId + "] " + message, level);
+    });
+    
+    // Command sent callback - logs sent commands to console
+    commMgr.SetCommandSentCallback([console](const std::string& machineId, const std::string& command) {
+        console->LogSentCommand(command);
+    });
+    
+    // Response received callback - logs received responses to console
+    commMgr.SetResponseReceivedCallback([console](const std::string& machineId, const std::string& response) {
+        console->LogReceivedResponse(response);
+    });
+    
+    // Connection status callback - updates GUI connection state
+    commMgr.SetConnectionStatusCallback([this, console](const std::string& machineId, bool connected) {
+        // Update status bar
+        UpdateConnectionStatus(machineId, connected);
+        
+        // Update console connection state
+        console->SetConnectionEnabled(connected);
+        
+        if (connected) {
+            // Set the connected machine as active for console commands
+            console->SetActiveMachine(machineId);
+            console->LogMessage("=== MACHINE CONNECTED ===", "INFO");
+            console->LogMessage("Machine ID: " + machineId, "INFO");
+            console->LogMessage("Status: READY - Machine is active and awaiting commands", "INFO");
+            console->LogMessage("=== END CONNECTION INFO ===", "INFO");
+        } else {
+            console->LogMessage("=== MACHINE DISCONNECTED ===", "WARNING");
+            console->LogMessage("Machine ID: " + machineId, "INFO");
+            console->LogMessage("=== MACHINE OFFLINE ===", "WARNING");
+        }
+    });
+    
+    // DRO update callback - updates position displays
+    commMgr.SetDROUpdateCallback([this](const std::string& machineId, const std::vector<float>& mpos, const std::vector<float>& wpos) {
+        // Update status bar position display
+        UpdateDRO(machineId, mpos, wpos);
+        
+        // TODO: Update DRO panel when available
+        // Find and update DRO panel if visible
+    });
+    
+    LOG_INFO("Communication callbacks configured for real machine communication");
 }

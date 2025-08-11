@@ -18,6 +18,10 @@
 #include <memory>
 
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#undef UNICODE
+#undef _UNICODE
+#include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 typedef SOCKET socket_t;
@@ -37,6 +41,7 @@ public:
     // Callback types
     using DROCallback = std::function<void(const std::vector<float>& mpos, const std::vector<float>& wpos)>;
     using ConnectionCallback = std::function<void()>;
+    using ResponseCallback = std::function<void(const std::string& response)>;
     
     FluidNCClient(const std::string& host, int port, DROCallback droCallback = nullptr);
     ~FluidNCClient();
@@ -52,6 +57,7 @@ public:
     // Callbacks (GUI should wrap these with appropriate thread dispatching)
     void setOnConnectCallback(ConnectionCallback callback) { m_onConnect = callback; }
     void setOnDisconnectCallback(ConnectionCallback callback) { m_onDisconnect = callback; }
+    void setResponseCallback(ResponseCallback callback) { m_onResponse = callback; }
     
     // Settings
     void setAutoReconnect(bool enable) { m_autoReconnect = enable; }
@@ -94,4 +100,5 @@ private:
     DROCallback m_droCallback;
     ConnectionCallback m_onConnect;
     ConnectionCallback m_onDisconnect;
+    ResponseCallback m_onResponse;
 };

@@ -4,10 +4,11 @@
  */
 
 #include "DROPanel.h"
+#include "NotificationSystem.h"
 #include <wx/sizer.h>
-#include <wx/statbox.h>
 #include <wx/msgdlg.h>
-
+#include <wx/textdlg.h>
+#include <wx/timer.h>
 // Control IDs
 enum {
     ID_MACHINE_CHOICE = wxID_HIGHEST + 1100,
@@ -255,45 +256,16 @@ void DROPanel::CreateQuickCommands()
 
 void DROPanel::UpdateCoordinateDisplay()
 {
-    // Simulate some position data
-    static double x = 0.0, y = 0.0, z = 5.0;
-    static bool direction = true;
-    
-    if (direction) {
-        x += 0.1;
-        y += 0.05;
-        if (x > 10.0) direction = false;
-    } else {
-        x -= 0.1;
-        y -= 0.05;
-        if (x < 0.0) direction = true;
-    }
-    
-    if (m_mposX && m_mposY && m_mposZ) {
-        m_mposX->SetLabel(wxString::Format("%.3f", x));
-        m_mposY->SetLabel(wxString::Format("%.3f", y));
-        m_mposZ->SetLabel(wxString::Format("%.3f", z));
-    }
-    
-    if (m_wposX && m_wposY && m_wposZ) {
-        m_wposX->SetLabel(wxString::Format("%.3f", x));
-        m_wposY->SetLabel(wxString::Format("%.3f", y));
-        m_wposZ->SetLabel(wxString::Format("%.3f", z - 5.0));
-    }
+    // Real position data will be updated via callbacks from CommunicationManager
+    // This method is now used for manual updates when needed
+    // Position data comes from the connected machine, not simulated
 }
 
 void DROPanel::UpdateMachineStatusDisplay()
 {
-    if (m_feedRate && m_spindleSpeed) {
-        static int feed = 0;
-        static int spindle = 0;
-        
-        feed = (feed + 10) % 1000;
-        spindle = (spindle + 50) % 2000;
-        
-        m_feedRate->SetLabel(wxString::Format("Feed: %d mm/min", feed));
-        m_spindleSpeed->SetLabel(wxString::Format("Spindle: %d RPM", spindle));
-    }
+    // Real machine status will be updated via callbacks from CommunicationManager
+    // This method is now used for manual updates when needed
+    // Status data comes from the connected machine, not simulated
 }
 
 // Event handlers
@@ -302,14 +274,8 @@ void DROPanel::OnMachineChanged(wxCommandEvent& event)
     int selection = m_machineChoice->GetSelection();
     if (selection != wxNOT_FOUND) {
         m_activeMachine = m_machineChoice->GetString(selection).ToStdString();
-        // Simulate connection status change
-        if (selection == 2) { // 3D Printer
-            m_connectionStatus->SetLabel("Connected");
-            m_connectionStatus->SetForegroundColour(*wxGREEN);
-        } else {
-            m_connectionStatus->SetLabel("Disconnected");
-            m_connectionStatus->SetForegroundColour(*wxRED);
-        }
+        // Real connection status will be updated via CommunicationManager callbacks
+        // No more simulated connection status changes
         Layout();
     }
 }
@@ -318,8 +284,8 @@ void DROPanel::OnSendCommand(wxCommandEvent& WXUNUSED(event))
 {
     wxString command = m_commandInput->GetValue().Trim();
     if (!command.IsEmpty()) {
-        wxMessageBox(wxString::Format("Sending command: %s\n\nThis would send the command to the active machine.",
-                                     command), "Send Command", wxOK | wxICON_INFORMATION, this);
+        NotificationSystem::Instance().ShowInfo(
+            "Command Sent", wxString::Format("Sending command: %s", command));
         m_commandInput->Clear();
     }
 }
@@ -371,8 +337,8 @@ void DROPanel::OnQuickCommand(wxCommandEvent& event)
             return;
     }
     
-    wxMessageBox(wxString::Format("Executing quick command: %s\n\nThis would send the command to the active machine.",
-                                 command), "Quick Command", wxOK | wxICON_INFORMATION, this);
+    NotificationSystem::Instance().ShowInfo(
+        "Quick Command", wxString::Format("Executing: %s", command));
 }
 
 void DROPanel::OnZeroWork(wxCommandEvent& WXUNUSED(event))
@@ -381,8 +347,7 @@ void DROPanel::OnZeroWork(wxCommandEvent& WXUNUSED(event))
                              "Zero Work Position", wxYES_NO | wxICON_QUESTION, this);
     
     if (result == wxYES) {
-        wxMessageBox("Work position zeroed at current location.", "Zero Work Position", 
-                     wxOK | wxICON_INFORMATION, this);
+        NotificationSystem::Instance().ShowSuccess("Zero Work", "Work position zeroed at current location.");
     }
 }
 
@@ -392,8 +357,7 @@ void DROPanel::OnZeroAll(wxCommandEvent& WXUNUSED(event))
                              "Zero All Coordinates", wxYES_NO | wxICON_QUESTION, this);
     
     if (result == wxYES) {
-        wxMessageBox("All work coordinates have been zeroed.", "Zero All Coordinates", 
-                     wxOK | wxICON_INFORMATION, this);
+        NotificationSystem::Instance().ShowSuccess("Zero All", "All work coordinates have been zeroed.");
     }
 }
 
@@ -401,8 +365,8 @@ void DROPanel::OnSetWork(wxCommandEvent& WXUNUSED(event))
 {
     wxString value = wxGetTextFromUser("Enter new work coordinate value:", "Set Work Position", "0.000");
     if (!value.IsEmpty()) {
-        wxMessageBox(wxString::Format("Work position set to: %s", value), "Set Work Position", 
-                     wxOK | wxICON_INFORMATION, this);
+        NotificationSystem::Instance().ShowSuccess(
+            "Set Work Position", wxString::Format("Work position set to: %s", value));
     }
 }
 

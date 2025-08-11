@@ -100,6 +100,7 @@ public:
     
     // Management
     void SetParentWindow(wxWindow* parent);
+    wxWindow* GetParentWindow() const { return m_parentWindow; }
     void ClearAll();
     void RemoveNotification(NotificationToast* toast);
     
@@ -128,7 +129,7 @@ private:
     int m_maxNotifications = 5;
     int m_stackingOffset = 10;
     int m_marginHorizontal = 20;
-    int m_marginVertical = 20;
+    int m_marginVertical = 70;
 };
 
 // Convenience macros for easy usage

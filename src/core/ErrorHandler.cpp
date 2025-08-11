@@ -43,6 +43,7 @@ ErrorHandler& ErrorHandler::Instance()
 void ErrorHandler::Initialize()
 {
     // Set up custom log target
+    // Note: Keeping wxLog for system-level error handling, but routing through our logger
     wxLog::SetActiveTarget(new CustomLogTarget());
     
     // Set up custom assertion handler

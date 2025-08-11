@@ -30,6 +30,9 @@ public:
     void RefreshMachineList();
     void SelectMachine(const std::string& machineId);
     void UpdateConnectionStatus(const std::string& machineId, bool connected);
+    
+    // Auto-connect functionality
+    void AttemptAutoConnect();
 
 private:
     // Event handlers
@@ -43,6 +46,7 @@ private:
     void OnTestConnection(wxCommandEvent& event);
     void OnImportConfig(wxCommandEvent& event);
     void OnExportConfig(wxCommandEvent& event);
+    void OnScanNetwork(wxCommandEvent& event);
     
     // UI Creation
     void CreateControls();
@@ -69,6 +73,7 @@ private:
     // Machine list panel
     wxPanel* m_listPanel;
     wxListCtrl* m_machineList;
+    wxButton* m_scanNetworkBtn;
     wxButton* m_addBtn;
     wxButton* m_editBtn;
     wxButton* m_removeBtn;
@@ -102,6 +107,7 @@ private:
         std::string machineType;
         bool connected;
         std::string lastConnected;
+        bool autoConnect;
     };
     
     std::vector<MachineConfig> m_machines;

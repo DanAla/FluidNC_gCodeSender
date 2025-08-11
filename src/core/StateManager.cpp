@@ -308,16 +308,31 @@ void StateManager::saveWindowLayout(const WindowLayout& layout)
     }
     
     // Check if layout already exists
+    bool updated = false;
     for (auto& layoutJson : m_data["windowLayouts"]) {
         if (layoutJson["windowId"] == layout.windowId) {
             // Update existing
             layoutJson = windowLayoutToJson(layout);
-            return;
+            updated = true;
+            break;
         }
     }
     
-    // Add new layout
-    m_data["windowLayouts"].push_back(windowLayoutToJson(layout));
+    if (!updated) {
+        // Add new layout
+        m_data["windowLayouts"].push_back(windowLayoutToJson(layout));
+    }
+    
+    // Save immediately to disk to ensure window state is preserved
+    try {
+        std::ofstream file(m_settingsFile);
+        if (file.is_open()) {
+            file << m_data.dump(2) << std::endl;
+            file.close();
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error saving window layout: " << e.what() << std::endl;
+    }
 }
 
 WindowLayout StateManager::getWindowLayout(const std::string& windowId) const

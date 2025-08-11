@@ -4,8 +4,10 @@
  */
 
 #include "NotificationSystem.h"
+#include "core/SimpleLogger.h"
 #include <wx/artprov.h>
 #include <wx/dcbuffer.h>
+#include <wx/app.h>
 #include <algorithm>
 
 // Toast window events
@@ -345,25 +347,40 @@ void NotificationSystem::ShowNotification(const wxString& title, const wxString&
                                          NotificationType type, int duration)
 {
     if (!m_parentWindow) {
+        LOG_INFO("NotificationSystem: No parent window set - cannot show notification");
         return; // No parent window set
     }
     
+    std::string logMsg = "NotificationSystem: Creating notification: " + title.ToStdString() + " - " + message.ToStdString();
+    LOG_INFO(logMsg);
+    
     // Create new notification
+    std::string parentMsg = "Creating NotificationToast with parent " + std::to_string((uintptr_t)m_parentWindow);
+    LOG_INFO(parentMsg);
     auto toast = std::make_unique<NotificationToast>(m_parentWindow, title, message, type, duration);
+    LOG_INFO("NotificationToast created successfully");
+    
+    // CRITICAL: Show the toast window!
+    toast->Show(true);
+    LOG_INFO("NotificationToast Show() called - should be visible now");
     
     // Add to collection
     m_notifications.push_back(std::move(toast));
+    std::string countMsg = "Toast added to collection. Total notifications: " + std::to_string(m_notifications.size());
+    LOG_INFO(countMsg);
     
     // Enforce maximum notifications
     EnforceMaxNotifications();
     
     // Position all notifications
     RepositionNotifications();
+    LOG_INFO("Notifications repositioned");
 }
 
 void NotificationSystem::SetParentWindow(wxWindow* parent)
 {
     m_parentWindow = parent;
+    LOG_INFO("NotificationSystem: Parent window set to " + std::to_string((uintptr_t)parent));
 }
 
 void NotificationSystem::ClearAll()
@@ -382,10 +399,18 @@ void NotificationSystem::RemoveNotification(NotificationToast* toast)
         });
     
     if (it != m_notifications.end()) {
-        // Destroy the window
+        LOG_INFO("Removing notification from collection");
+        
+        // Hide the window immediately
+        (*it)->Hide();
+        
+        // Destroy the window immediately (should be safe since we're not in its event handler)
         (*it)->Destroy();
+        
         // Remove from collection
         m_notifications.erase(it);
+        LOG_INFO(std::string("Notifications remaining: ") + std::to_string(m_notifications.size()));
+        
         // Reposition remaining notifications
         RepositionNotifications();
     }
@@ -408,14 +433,21 @@ wxPoint NotificationSystem::CalculatePosition(int index) const
     wxSize parentSize = m_parentWindow->GetSize();
     wxPoint parentPos = m_parentWindow->GetPosition();
     
-    // Position in bottom-right corner by default
+    // Position in upper-right corner
     int x = parentPos.x + parentSize.GetWidth() - 320 - m_marginHorizontal;
-    int y = parentPos.y + parentSize.GetHeight() - m_marginVertical - 80;
+    int y = parentPos.y + m_marginVertical;
     
-    // Stack upwards
-    y -= index * (80 + m_stackingOffset);
+    // Stack downwards
+    y += index * (80 + m_stackingOffset);
     
-    return wxPoint(x, y);
+    wxPoint calculatedPos(x, y);
+    std::string posMsg = "Calculated position for notification " + std::to_string(index) + ": (" + 
+                        std::to_string(calculatedPos.x) + ", " + std::to_string(calculatedPos.y) + 
+                        "). Parent size: " + std::to_string(parentSize.GetWidth()) + "x" + std::to_string(parentSize.GetHeight()) +
+                        ", Parent pos: (" + std::to_string(parentPos.x) + ", " + std::to_string(parentPos.y) + ")";
+    LOG_INFO(posMsg);
+    
+    return calculatedPos;
 }
 
 void NotificationSystem::EnforceMaxNotifications()

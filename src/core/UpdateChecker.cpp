@@ -6,6 +6,7 @@
 #include "UpdateChecker.h"
 #include "Version.h"
 #include "ErrorHandler.h"
+#include "SimpleLogger.h"
 #include "../gui/NotificationSystem.h"
 #include <wx/protocol/http.h>
 #include <wx/url.h>
@@ -313,7 +314,7 @@ void UpdateManager::OnUpdateCheckComplete(const UpdateInfo& info) {
         // Only show error dialogs for serious connection issues, not parsing issues
         if (info.error.Contains("Failed to connect") || info.error.Contains("Failed to get update")) {
             // Even then, just log silently - update checks should not annoy users
-            wxLogMessage("Update check failed: %s", info.error);
+            LOG_INFO("Update check failed: " + info.error.ToStdString());
         }
         // For parsing errors (like "Invalid response format"), just ignore silently
         // This handles cases where there are no releases yet

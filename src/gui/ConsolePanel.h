@@ -50,6 +50,9 @@ public:
     
     // Connection status
     void SetConnectionEnabled(bool connected);
+    
+    // Real communication integration
+    void SetActiveMachine(const std::string& machineId);
 
 private:
     // Event handlers
@@ -90,6 +93,9 @@ private:
     bool ShouldShowMessage(const std::string& level) const;
     std::string FilterMessage(const std::string& message) const;
     
+    // Special character processing for terminal functionality
+    std::string ProcessSpecialCharacters(const std::string& input) const;
+    
     // Log entry structure
     struct LogEntry {
         std::string timestamp;
@@ -125,6 +131,7 @@ private:
     std::deque<LogEntry> m_logEntries;
     std::vector<std::string> m_commandHistoryData;
     std::string m_currentMachine;
+    std::string m_activeMachine;  // Currently active machine for sending commands
     std::string m_currentFilter;
     
     // Display settings

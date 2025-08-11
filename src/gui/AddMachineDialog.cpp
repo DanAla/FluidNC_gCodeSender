@@ -4,6 +4,7 @@
  */
 
 #include "AddMachineDialog.h"
+#include "NotificationSystem.h"
 #include <wx/sizer.h>
 #include <wx/msgdlg.h>
 #include <wx/valtext.h>
@@ -258,6 +259,7 @@ AddMachineDialog::MachineData AddMachineDialog::GetMachineData() const
     data.machineType = m_machineTypeCtrl->GetStringSelection();
     data.baudRate = m_baudRateCtrl->GetStringSelection();
     data.serialPort = m_serialPortCtrl->GetStringSelection();
+    data.autoConnect = m_autoConnectCtrl->GetValue();
     return data;
 }
 
@@ -273,6 +275,7 @@ void AddMachineDialog::SetMachineData(const MachineData& data)
     m_machineTypeCtrl->SetStringSelection(data.machineType);
     m_baudRateCtrl->SetStringSelection(data.baudRate);
     m_serialPortCtrl->SetStringSelection(data.serialPort);
+    m_autoConnectCtrl->SetValue(data.autoConnect);
     
     UpdateConnectionFields();
 }
@@ -281,7 +284,7 @@ bool AddMachineDialog::ValidateInput()
 {
     // Check required fields
     if (m_nameCtrl->GetValue().Trim().IsEmpty()) {
-        wxMessageBox("Please enter a machine name.", "Validation Error", wxOK | wxICON_WARNING, this);
+        NotificationSystem::Instance().ShowWarning("Validation Error", "Please enter a machine name.");
         m_nameCtrl->SetFocus();
         return false;
     }
@@ -289,7 +292,7 @@ bool AddMachineDialog::ValidateInput()
     // Check for duplicate names (simplified - would check against existing machines in real implementation)
     wxString name = m_nameCtrl->GetValue().Trim();
     if (name.Lower() == "default" || name.Lower() == "new machine") {
-        wxMessageBox("Please choose a different machine name.", "Validation Error", wxOK | wxICON_WARNING, this);
+        NotificationSystem::Instance().ShowWarning("Validation Error", "Please choose a different machine name.");
         m_nameCtrl->SetFocus();
         return false;
     }
@@ -298,7 +301,7 @@ bool AddMachineDialog::ValidateInput()
     wxString protocol = m_protocolCtrl->GetStringSelection();
     if (protocol == "Telnet" || protocol == "WebSocket") {
         if (m_hostCtrl->GetValue().Trim().IsEmpty()) {
-            wxMessageBox("Please enter a host/IP address for network connections.", "Validation Error", wxOK | wxICON_WARNING, this);
+            NotificationSystem::Instance().ShowWarning("Validation Error", "Please enter a host/IP address for network connections.");
             m_hostCtrl->SetFocus();
             return false;
         }
@@ -306,20 +309,20 @@ bool AddMachineDialog::ValidateInput()
         // Basic IP address validation (simplified)
         wxString host = m_hostCtrl->GetValue().Trim();
         if (!host.Contains(".") && host != "localhost") {
-            wxMessageBox("Please enter a valid IP address or hostname.", "Validation Error", wxOK | wxICON_WARNING, this);
+            NotificationSystem::Instance().ShowWarning("Validation Error", "Please enter a valid IP address or hostname.");
             m_hostCtrl->SetFocus();
             return false;
         }
     } else if (protocol == "USB/Serial") {
         if (m_serialPortCtrl->GetSelection() == wxNOT_FOUND) {
-            wxMessageBox("Please select a serial port for USB/Serial connections.", "Validation Error", wxOK | wxICON_WARNING, this);
+            NotificationSystem::Instance().ShowWarning("Validation Error", "Please select a serial port for USB/Serial connections.");
             return false;
         }
     }
     
     // Validate machine type selection
     if (m_machineTypeCtrl->GetSelection() == wxNOT_FOUND) {
-        wxMessageBox("Please select a machine type.", "Validation Error", wxOK | wxICON_WARNING, this);
+        NotificationSystem::Instance().ShowWarning("Validation Error", "Please select a machine type.");
         return false;
     }
     
@@ -396,11 +399,11 @@ void AddMachineDialog::OnTestConnection(wxCommandEvent& WXUNUSED(event))
     
     // Only test network protocols for now
     if (data.protocol != "Telnet" && data.protocol != "WebSocket") {
-        wxMessageBox(
-            wxString::Format("Connection testing for %s protocol is not yet implemented.\n\n"
-                           "This feature will be added in a future update.",
-                           data.protocol),
-            "Connection Test - Not Implemented", wxOK | wxICON_INFORMATION, this);
+        NotificationSystem::Instance().ShowInfo(
+            "Feature Not Available",
+            wxString::Format("Connection testing for %s protocol is not yet implemented.",
+                           data.protocol)
+        );
         return;
     }
     
@@ -425,35 +428,25 @@ void AddMachineDialog::OnTestConnection(wxCommandEvent& WXUNUSED(event))
     progressDlg->Destroy();
     
     if (status == std::future_status::timeout) {
-        wxMessageBox(
-            wxString::Format("Connection test to '%s' timed out.\n\n"
-                           "Host: %s\n"
-                           "Port: %d\n\n"
-                           "The machine may be offline or unreachable.",
-                           data.name, data.host, data.port),
-            "Connection Test - Timeout", wxOK | wxICON_WARNING, this);
+        NotificationSystem::Instance().ShowWarning(
+            "Connection Timeout",
+            wxString::Format("Connection test to '%s' (%s:%d) timed out. Machine may be offline.",
+                           data.name, data.host, data.port)
+        );
     } else {
         bool success = connectionTest.get();
         if (success) {
-            wxMessageBox(
-                wxString::Format("Connection test to '%s' was successful!\n\n"
-                               "Host: %s\n"
-                               "Port: %d\n\n"
-                               "The machine is reachable and accepting connections.",
-                               data.name, data.host, data.port),
-                "Connection Test - Success", wxOK | wxICON_INFORMATION, this);
+            NotificationSystem::Instance().ShowSuccess(
+                "Connection Test Successful",
+                wxString::Format("Successfully connected to '%s' (%s:%d). Machine is reachable.",
+                               data.name, data.host, data.port)
+            );
         } else {
-            wxMessageBox(
-                wxString::Format("Connection test to '%s' failed.\n\n"
-                               "Host: %s\n"
-                               "Port: %d\n\n"
-                               "Please check that:\n"
-                               "- The machine is powered on and connected\n"
-                               "- The network connection is working\n"
-                               "- The host address and port are correct\n"
-                               "- No firewall is blocking the connection",
-                               data.name, data.host, data.port),
-                "Connection Test - Failed", wxOK | wxICON_ERROR, this);
+            NotificationSystem::Instance().ShowError(
+                "Connection Test Failed",
+                wxString::Format("Failed to connect to '%s' (%s:%d). Check machine power and network.",
+                               data.name, data.host, data.port)
+            );
         }
     }
 }

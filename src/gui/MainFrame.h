@@ -72,6 +72,9 @@ public:
     void SaveCurrentLayout();
     void LoadSavedLayout();
     
+    // Panel access
+    class ConsolePanel* GetConsolePanel() const;
+    
     // Machine status updates
     void UpdateMachineStatus(const std::string& machineId, const std::string& status);
     void UpdateConnectionStatus(const std::string& machineId, bool connected);
@@ -106,6 +109,7 @@ private:
     void OnTogglePanel(wxCommandEvent& event);
     void OnResetLayout(wxCommandEvent& event);
     void OnTestErrorHandler(wxCommandEvent& event);
+    void OnTestNotificationSystem(wxCommandEvent& event);
     
     // Toolbar handlers
     void OnToolbarConnect(wxCommandEvent& event);
@@ -137,6 +141,9 @@ private:
     PanelInfo* FindPanelInfo(PanelID id);
     PanelInfo* FindPanelInfo(wxPanel* panel);
     void AddPanelToAui(PanelInfo& panelInfo);
+    
+    // Communication setup
+    void SetupCommunicationCallbacks();
     
     // Core components - temporarily disabled
     // StateManager& m_stateManager;

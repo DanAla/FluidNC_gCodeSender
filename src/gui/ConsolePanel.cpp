@@ -4,6 +4,8 @@
  */
 
 #include "ConsolePanel.h"
+#include "NotificationSystem.h"
+#include "../core/CommunicationManager.h"
 #include <wx/sizer.h>
 #include <wx/msgdlg.h>
 #include <wx/filedlg.h>
@@ -259,14 +261,9 @@ std::string ConsolePanel::FilterMessage(const std::string& message) const
 
 void ConsolePanel::LoadCommandHistory()
 {
-    // Add some sample command history
-    m_commandHistoryData.push_back("$I");
-    m_commandHistoryData.push_back("$$");
-    m_commandHistoryData.push_back("$G");
-    m_commandHistoryData.push_back("G28");
-    m_commandHistoryData.push_back("G0 X0 Y0 Z0");
-    m_commandHistoryData.push_back("M3 S1000");
-    m_commandHistoryData.push_back("M5");
+    // Load command history from persistent storage
+    // TODO: Implement command history persistence
+    // For now, start with empty history
     
     // Update UI
     if (m_commandHistory) {
@@ -340,9 +337,10 @@ void ConsolePanel::SaveLog()
                        wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
     
     if (dialog.ShowModal() == wxID_OK) {
-        wxMessageBox(wxString::Format("Would save log to: %s\n\n%zu log entries would be saved.",
-                                     dialog.GetPath(), m_logEntries.size()),
-                     "Save Log", wxOK | wxICON_INFORMATION, this);
+        NotificationSystem::Instance().ShowInfo(
+            "Save Log",
+            wxString::Format("Would save log to: %s (%zu entries)", dialog.GetPath(), m_logEntries.size())
+        );
     }
 }
 
@@ -350,6 +348,12 @@ void ConsolePanel::SetMachine(const std::string& machineId)
 {
     m_currentMachine = machineId;
     LogMessage("Switched to machine: " + machineId, "INFO");
+}
+
+void ConsolePanel::SetActiveMachine(const std::string& machineId)
+{
+    m_activeMachine = machineId;
+    LogMessage("Active machine for commands: " + machineId, "INFO");
 }
 
 void ConsolePanel::SetFilter(const std::string& filter)
@@ -396,15 +400,29 @@ void ConsolePanel::SetConnectionEnabled(bool connected)
 void ConsolePanel::OnSendCommand(wxCommandEvent& WXUNUSED(event))
 {
     wxString command = m_commandInput->GetValue().Trim();
-    if (!command.IsEmpty()) {
+    if (!command.IsEmpty() && !m_activeMachine.empty()) {
         std::string cmdStr = command.ToStdString();
-        LogSentCommand(cmdStr);
+        
+        // Process escape sequences and special characters
+        std::string processedCmd = ProcessSpecialCharacters(cmdStr);
+        
+        // Add original command to history
         AddToHistory(cmdStr);
         
-        // Simulate response after a brief delay
-        LogReceivedResponse("ok");
+        // Send the processed command through CommunicationManager
+        bool sent = CommunicationManager::Instance().SendCommand(m_activeMachine, processedCmd);
+        
+        if (sent) {
+            // Command was sent successfully - the CommunicationManager will handle logging via callbacks
+            // Note: The actual sent command will be logged by the communication manager callback
+        } else {
+            // Failed to send command
+            LogError("Failed to send command: " + cmdStr + " (machine not connected or not found)");
+        }
         
         m_commandInput->Clear();
+    } else if (m_activeMachine.empty()) {
+        LogError("No active machine selected for commands");
     }
 }
 
@@ -493,6 +511,48 @@ void ConsolePanel::OnKeyDown(wxKeyEvent& event)
     }
     
     int keyCode = event.GetKeyCode();
+    
+    // Handle control characters for telnet terminal functionality
+    if (event.ControlDown() && !m_activeMachine.empty()) {
+        char controlChar = 0;
+        std::string description;
+        
+        switch (keyCode) {
+            case 'X':
+            case 'x':
+                controlChar = 24; // CTRL-X (Cancel/Reset)
+                description = "CTRL-X (Reset)";
+                break;
+            case 'C':
+            case 'c':
+                controlChar = 3; // CTRL-C (Break)
+                description = "CTRL-C (Break)";
+                break;
+            case 'Z':
+            case 'z':
+                controlChar = 26; // CTRL-Z (Suspend)
+                description = "CTRL-Z (Suspend)";
+                break;
+            case 'D':
+            case 'd':
+                controlChar = 4; // CTRL-D (EOF)
+                description = "CTRL-D (EOF)";
+                break;
+        }
+        
+        if (controlChar != 0) {
+            // Send the control character directly
+            std::string controlStr(1, controlChar);
+            bool sent = CommunicationManager::Instance().SendCommand(m_activeMachine, controlStr);
+            
+            if (sent) {
+                LogMessage("Sent: " + description, "INFO");
+            } else {
+                LogError("Failed to send " + description + " (machine not connected)");
+            }
+            return; // Don't process further
+        }
+    }
     
     if (keyCode == WXK_UP) {
         // Show history if not already shown and navigate up
@@ -596,6 +656,58 @@ void ConsolePanel::ShowCommandHistory(bool show)
         m_commandPanel->GetSizer()->Layout();
         GetParent()->Layout();
     }
+}
+
+std::string ConsolePanel::ProcessSpecialCharacters(const std::string& input) const
+{
+    std::string result = input;
+    
+    // Process escape sequences and special character notations
+    size_t pos = 0;
+    while ((pos = result.find("\\x", pos)) != std::string::npos) {
+        if (pos + 3 < result.length()) {
+            // Extract hex value (2 characters after \x)
+            std::string hexStr = result.substr(pos + 2, 2);
+            char* endPtr;
+            long hexValue = std::strtol(hexStr.c_str(), &endPtr, 16);
+            
+            if (*endPtr == '\0' && hexValue >= 0 && hexValue <= 255) {
+                // Valid hex value, replace \xHH with actual character
+                char actualChar = static_cast<char>(hexValue);
+                result.replace(pos, 4, 1, actualChar);
+                pos += 1;
+            } else {
+                pos += 2;
+            }
+        } else {
+            break;
+        }
+    }
+    
+    // Process caret notation (^X = CTRL-X)
+    pos = 0;
+    while ((pos = result.find("^", pos)) != std::string::npos) {
+        if (pos + 1 < result.length()) {
+            char nextChar = result[pos + 1];
+            if (nextChar >= 'A' && nextChar <= 'Z') {
+                // Convert ^A to CTRL-A (ASCII 1), ^B to CTRL-B (ASCII 2), etc.
+                char controlChar = nextChar - 'A' + 1;
+                result.replace(pos, 2, 1, controlChar);
+                pos += 1;
+            } else if (nextChar >= 'a' && nextChar <= 'z') {
+                // Convert ^a to CTRL-A (ASCII 1), ^b to CTRL-B (ASCII 2), etc.
+                char controlChar = nextChar - 'a' + 1;
+                result.replace(pos, 2, 1, controlChar);
+                pos += 1;
+            } else {
+                pos += 1;
+            }
+        } else {
+            break;
+        }
+    }
+    
+    return result;
 }
 
 void ConsolePanel::SaveCommandHistory()

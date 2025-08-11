@@ -36,6 +36,7 @@ public:
         wxString machineType;
         wxString baudRate;  // For USB/Serial connections
         wxString serialPort; // For USB/Serial connections
+        bool autoConnect;   // Auto-connect on startup
     };
     
     // Get the configured machine data
