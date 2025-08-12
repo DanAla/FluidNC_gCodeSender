@@ -753,6 +753,34 @@ std::string ConsolePanel::ProcessSpecialCharacters(const std::string& input) con
         }
     }
     
+    // Process standard escape sequences
+    pos = 0;
+    while ((pos = result.find("\\", pos)) != std::string::npos) {
+        if (pos + 1 < result.length()) {
+            char nextChar = result[pos + 1];
+            char replaceChar = '\0';
+            
+            switch (nextChar) {
+                case 'n': replaceChar = '\n'; break;  // newline
+                case 't': replaceChar = '\t'; break;  // tab
+                case 'r': replaceChar = '\r'; break;  // carriage return
+                case '\\': replaceChar = '\\'; break; // backslash
+                case '"': replaceChar = '"'; break;   // quote
+                case '\'': replaceChar = '\''; break; // apostrophe
+                default:
+                    // Unknown escape sequence, leave as-is and continue
+                    pos += 2;
+                    continue;
+            }
+            
+            // Replace the escape sequence with the actual character
+            result.replace(pos, 2, 1, replaceChar);
+            pos += 1;
+        } else {
+            break;
+        }
+    }
+    
     // Process caret notation (^X = CTRL-X)
     pos = 0;
     while ((pos = result.find("^", pos)) != std::string::npos) {
@@ -1099,20 +1127,53 @@ void ConsolePanel::OnMacroButton(wxCommandEvent& event)
     for (const auto& macro : m_macroButtons) {
         if (macro.id == buttonId) {
             if (!m_activeMachine.empty()) {
-                // Process the command
+                // Process the command for special characters (including newlines)
                 std::string processedCmd = ProcessSpecialCharacters(macro.command);
                 
-                // Add to history
+                // Add original command to history
                 AddToHistory(macro.command);
                 
-                // Send the command
-                bool sent = CommunicationManager::Instance().SendCommand(m_activeMachine, processedCmd);
+                // Split the processed command on newlines to handle multiple commands
+                std::vector<std::string> commands;
+                std::istringstream iss(processedCmd);
+                std::string line;
                 
-                if (sent) {
-                    // Command sent successfully - will be logged by callback
-                    LogMessage("Macro button: " + macro.label + " (" + macro.command + ")", "INFO");
+                while (std::getline(iss, line)) {
+                    // Trim whitespace from each line
+                    line.erase(0, line.find_first_not_of(" \t\r"));
+                    line.erase(line.find_last_not_of(" \t\r") + 1);
+                    
+                    if (!line.empty()) {
+                        commands.push_back(line);
+                    }
+                }
+                
+                // Send each command separately
+                bool allSent = true;
+                int commandCount = 0;
+                
+                for (const auto& cmd : commands) {
+                    bool sent = CommunicationManager::Instance().SendCommand(m_activeMachine, cmd);
+                    
+                    if (sent) {
+                        commandCount++;
+                    } else {
+                        allSent = false;
+                        LogError("Failed to send command: " + cmd + " (machine not connected)");
+                    }
+                }
+                
+                if (allSent && commandCount > 0) {
+                    // All commands sent successfully
+                    if (commandCount == 1) {
+                        LogMessage("Macro button: " + macro.label + " (" + macro.command + ")", "INFO");
+                    } else {
+                        LogMessage("Macro button: " + macro.label + " (sent " + std::to_string(commandCount) + " commands)", "INFO");
+                    }
+                } else if (commandCount == 0) {
+                    LogError("Failed to send macro command: " + macro.command + " (no valid commands or machine not connected)");
                 } else {
-                    LogError("Failed to send macro command: " + macro.command + " (machine not connected)");
+                    LogWarning("Macro partially sent: " + std::to_string(commandCount) + " of " + std::to_string(commands.size()) + " commands succeeded");
                 }
             } else {
                 LogError("No active machine for macro command: " + macro.label);

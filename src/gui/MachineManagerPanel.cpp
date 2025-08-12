@@ -1108,14 +1108,18 @@ void MachineManagerPanel::OnTestConnection(wxCommandEvent& WXUNUSED(event))
 
 void MachineManagerPanel::OnImportConfig(wxCommandEvent& WXUNUSED(event))
 {
-    wxMessageBox("Import Configuration dialog would open here.\n\nThis will allow importing machine configurations from file.",
-                 "Import Config", wxOK | wxICON_INFORMATION, this);
+    NotificationSystem::Instance().ShowInfo(
+        "Import Config",
+        "Import Configuration dialog would open here. This will allow importing machine configurations from file."
+    );
 }
 
 void MachineManagerPanel::OnExportConfig(wxCommandEvent& WXUNUSED(event))
 {
-    wxMessageBox("Export Configuration dialog would open here.\n\nThis will allow exporting machine configurations to file.",
-                 "Export Config", wxOK | wxICON_INFORMATION, this);
+    NotificationSystem::Instance().ShowInfo(
+        "Export Config",
+        "Export Configuration dialog would open here. This will allow exporting machine configurations to file."
+    );
 }
 
 void MachineManagerPanel::OnScanNetwork(wxCommandEvent& WXUNUSED(event))
@@ -1177,16 +1181,13 @@ void MachineManagerPanel::OnScanNetwork(wxCommandEvent& WXUNUSED(event))
             }
             
             // Show success message
-            wxString successMsg = wxString::Format(
-                "Successfully added discovered machine '%s'!\n\n"
-                "IP Address: %s\n"
-                "Device Type: %s\n"
-                "Response Time: %dms\n\n"
-                "You can now connect to this machine.",
-                finalData.name, selectedDevice.ip, selectedDevice.deviceType, selectedDevice.responseTime
+            NotificationSystem::Instance().ShowSuccess(
+                "Machine Added from Network Scan",
+                wxString::Format(
+                    "Successfully added discovered machine '%s' (%s). You can now connect to this machine.",
+                    finalData.name, selectedDevice.ip
+                )
             );
-            
-            wxMessageBox(successMsg, "Machine Added from Network Scan", wxOK | wxICON_INFORMATION, this);
         }
     }
 }

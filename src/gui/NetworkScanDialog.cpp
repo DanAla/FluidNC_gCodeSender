@@ -9,6 +9,7 @@
 #include <wx/button.h>
 #include <wx/msgdlg.h>
 #include "../core/SimpleLogger.h"
+#include "NotificationSystem.h"
 
 // Control IDs for NetworkScanDialog
 enum {
@@ -299,7 +300,7 @@ void NetworkScanDialog::OnTimer(wxTimerEvent& WXUNUSED(event))
                  ", error=" + update.error.ToStdString());
         UpdateDeviceList(update.devices);
         if (!update.success && !update.error.IsEmpty()) {
-            wxMessageBox(update.error, "Scan Error", wxOK | wxICON_WARNING, this);
+            NotificationSystem::Instance().ShowError("Scan Error", update.error);
         }
         SetScanningState(false);
     }

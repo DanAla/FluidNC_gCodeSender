@@ -276,8 +276,10 @@ URLS_AND_ENDPOINTS.md
 # AI Rules and Guidelines (keep local, don't commit to repo)
 .ai-rules
 AI-RULES.md
-RULES.txt
 .warp-rules
+RULES.md
+RULES.txt
+rules4ai.txt
 AI_backup/
 # But DO commit AI documentation for project
 # README-FOR-AI.md (commit this one)
