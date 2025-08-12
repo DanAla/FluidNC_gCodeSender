@@ -919,6 +919,10 @@ wxTextAttr ConsolePanel::GetColorForLevel(const std::string& level) const
 {
     wxTextAttr attr;
     
+    // Base monospace font settings
+    int baseFontSize = 9;
+    wxFontWeight fontWeight = wxFONTWEIGHT_NORMAL;
+    
     if (level == "ERROR") {
         attr.SetTextColour(wxColour(255, 85, 85));  // Light red
     } else if (level == "WARN") {
@@ -927,16 +931,18 @@ wxTextAttr ConsolePanel::GetColorForLevel(const std::string& level) const
         attr.SetTextColour(wxColour(135, 206, 235)); // Sky blue
     } else if (level == "SENT") {
         attr.SetTextColour(*wxWHITE); // White
-        attr.SetFontWeight(wxFONTWEIGHT_BOLD); // Bold
+        fontWeight = wxFONTWEIGHT_BOLD; // Bold weight
+        baseFontSize = 10; // Slightly larger for better visibility
     } else if (level == "RECV") {
-        attr.SetTextColour(*wxWHITE); // White
-        attr.SetFontWeight(wxFONTWEIGHT_BOLD); // Bold
+        attr.SetTextColour(wxColour(144, 238, 144)); // Light green for better distinction from SENT
+        fontWeight = wxFONTWEIGHT_BOLD; // Bold weight
+        baseFontSize = 10; // Slightly larger for better visibility
     } else {
         attr.SetTextColour(*wxWHITE); // Default white
     }
     
-    // Use monospace font for consistent display
-    wxFont font(9, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+    // Create font with appropriate weight and size for this level
+    wxFont font(baseFontSize, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, fontWeight);
     attr.SetFont(font);
     
     return attr;

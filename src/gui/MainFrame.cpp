@@ -92,6 +92,11 @@ MainFrame::MainFrame()
     
     // Create panels and setup AUI layout
     CreatePanels();
+    
+    // Initialize status bar with proper information after panels are created
+    CallAfter([this]() {
+        UpdateStatusBar();
+    });
     SetupConnectionFirstLayout(); // Use connection-first layout instead of default
     
     // Update menu states
@@ -427,21 +432,71 @@ ConsolePanel* MainFrame::GetConsolePanel() const {
 }
 
 void MainFrame::UpdateMachineStatus(const std::string& machineId, const std::string& status) {
-    SetStatusText(wxString::Format("Machine: %s", status), 1);
+    // Find machine name from machine manager
+    std::string machineName = "Unknown";
+    PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
+    if (machineManagerInfo) {
+        MachineManagerPanel* machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
+        if (machineManager) {
+            const auto& machines = machineManager->GetMachines();
+            for (const auto& machine : machines) {
+                if (machine.id == machineId) {
+                    machineName = machine.name;
+                    break;
+                }
+            }
+        }
+    }
+    
+    SetStatusText(wxString::Format("%s: %s", machineName, status), STATUS_MACHINE);
+    UpdateStatusBar();
 }
 
 void MainFrame::UpdateConnectionStatus(const std::string& machineId, bool connected) {
-    SetStatusText(connected ? "Connected" : "Disconnected", 2);
+    // Find machine name from machine manager
+    std::string machineName = "Unknown";
+    PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
+    if (machineManagerInfo) {
+        MachineManagerPanel* machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
+        if (machineManager) {
+            const auto& machines = machineManager->GetMachines();
+            for (const auto& machine : machines) {
+                if (machine.id == machineId) {
+                    machineName = machine.name;
+                    break;
+                }
+            }
+        }
+    }
+    
+    if (connected) {
+        SetStatusText(wxString::Format("Connected to %s", machineName), STATUS_CONNECTION);
+    } else {
+        SetStatusText("Disconnected", STATUS_CONNECTION);
+    }
+    
     SetMachineConnected(connected);
     
     // Update menu states based on connection status
     UpdateMenuItems();
+    
+    // Update the complete status bar
+    UpdateStatusBar();
 }
 
 void MainFrame::UpdateDRO(const std::string& machineId, const std::vector<float>& mpos, const std::vector<float>& wpos) {
     if (!mpos.empty() && mpos.size() >= 3) {
-        SetStatusText(wxString::Format("X:%.3f Y:%.3f Z:%.3f", mpos[0], mpos[1], mpos[2]), 3);
+        // Use work position if available, otherwise machine position
+        if (!wpos.empty() && wpos.size() >= 3) {
+            SetStatusText(wxString::Format("WPos X:%.3f Y:%.3f Z:%.3f", wpos[0], wpos[1], wpos[2]), STATUS_POSITION);
+        } else {
+            SetStatusText(wxString::Format("MPos X:%.3f Y:%.3f Z:%.3f", mpos[0], mpos[1], mpos[2]), STATUS_POSITION);
+        }
+    } else {
+        SetStatusText("Position: ---", STATUS_POSITION);
     }
+    
+    UpdateStatusBar();
 }
 
 // Window menu event handlers
@@ -970,6 +1025,98 @@ void MainFrame::SetupCommunicationCallbacks()
     });
     
     LOG_INFO("Communication callbacks configured for real machine communication");
+}
+
+// Comprehensive status bar update method
+void MainFrame::UpdateStatusBar()
+{
+    try {
+        // Get current time for general status
+        wxDateTime now = wxDateTime::Now();
+        wxString timeStr = now.Format("%H:%M:%S");
+        
+        // STATUS_MAIN field - Application status and general information
+        std::string mainStatus = "Ready";
+        
+        // Check if any machine is connected
+        bool anyConnected = false;
+        std::string connectedMachineName = "";
+        int totalMachines = 0;
+        int connectedCount = 0;
+        
+        // Get machine status from machine manager
+        PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
+        if (machineManagerInfo) {
+            MachineManagerPanel* machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
+            if (machineManager) {
+                const auto& machines = machineManager->GetMachines();
+                totalMachines = machines.size();
+                
+                for (const auto& machine : machines) {
+                    if (machine.connected) {
+                        anyConnected = true;
+                        connectedCount++;
+                        if (connectedMachineName.empty()) {
+                            connectedMachineName = machine.name;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Update main status based on connection state
+        if (anyConnected) {
+            if (connectedCount == 1) {
+                mainStatus = "Active - Connected to machine";
+            } else {
+                mainStatus = wxString::Format("Active - %d machines connected", connectedCount).ToStdString();
+            }
+        } else if (totalMachines > 0) {
+            mainStatus = wxString::Format("Ready - %d machine%s configured, none connected", 
+                                        totalMachines, totalMachines == 1 ? "" : "s");
+        } else {
+            mainStatus = "Ready - No machines configured. Use Machine Manager to add machines.";
+        }
+        
+        SetStatusText(mainStatus + " (" + timeStr + ")", STATUS_MAIN);
+        
+        // STATUS_MACHINE field - Current active machine info (if not already set by UpdateMachineStatus)
+        wxString currentMachineText = GetStatusText(STATUS_MACHINE);
+        if (currentMachineText == "No machine" || currentMachineText.IsEmpty()) {
+            if (!connectedMachineName.empty()) {
+                SetStatusText(connectedMachineName + ": Ready", STATUS_MACHINE);
+            } else if (totalMachines > 0) {
+                SetStatusText(wxString::Format("%d configured", totalMachines), STATUS_MACHINE);
+            } else {
+                SetStatusText("No machines", STATUS_MACHINE);
+            }
+        }
+        
+        // STATUS_CONNECTION field - Connection status summary (if not already set by UpdateConnectionStatus)
+        wxString currentConnectionText = GetStatusText(STATUS_CONNECTION);
+        if (currentConnectionText == "Disconnected" && anyConnected) {
+            if (connectedCount == 1) {
+                SetStatusText("Connected", STATUS_CONNECTION);
+            } else {
+                SetStatusText(wxString::Format("%d Connected", connectedCount), STATUS_CONNECTION);
+            }
+        } else if (!anyConnected) {
+            SetStatusText("Disconnected", STATUS_CONNECTION);
+        }
+        
+        // STATUS_POSITION field - Position info (if not already set by UpdateDRO)
+        wxString currentPositionText = GetStatusText(STATUS_POSITION);
+        if (currentPositionText == "Position: ---" && anyConnected) {
+            // Try to get position from CommunicationManager for the active machine
+            // This is a fallback - normally UpdateDRO handles this
+            SetStatusText("Position: Updating...", STATUS_POSITION);
+        }
+        
+    } catch (const std::exception& e) {
+        // If status bar update fails, at least show the error in main status
+        SetStatusText(wxString::Format("Status update error: %s", e.what()), STATUS_MAIN);
+        LOG_ERROR("UpdateStatusBar failed: " + std::string(e.what()));
+    }
 }
 
 // Save the Connection-First layout state

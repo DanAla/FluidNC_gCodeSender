@@ -13,18 +13,18 @@ namespace Version {
 // Version information (populated by CMake from Git tags)
 constexpr const char* APP_NAME = "FluidNC gCode Sender";
 
-// Use CMake-provided version information, with fallbacks
+// Use CMake-provided version information (REQUIRED - no fallbacks)
 #ifndef VERSION_MAJOR
-#define VERSION_MAJOR "0"
+#error "VERSION_MAJOR not defined! CMake version extraction failed."
 #endif
 #ifndef VERSION_MINOR
-#define VERSION_MINOR "1"
+#error "VERSION_MINOR not defined! CMake version extraction failed."
 #endif
 #ifndef VERSION_PATCH
-#define VERSION_PATCH "7"
+#error "VERSION_PATCH not defined! CMake version extraction failed."
 #endif
 #ifndef VERSION_STRING
-#define VERSION_STRING "0.1.7"
+#error "VERSION_STRING not defined! CMake version extraction failed."
 #endif
 
 constexpr const char* VERSION_MAJOR_STR = VERSION_MAJOR;
@@ -36,21 +36,25 @@ constexpr const char* VERSION_STRING_STR = VERSION_STRING;
 constexpr const char* REPOSITORY_URL = "https://github.com/DanAla/FluidNC_gCodeSender";
 constexpr const char* ISSUES_URL = "https://github.com/DanAla/FluidNC_gCodeSender/issues";
 
-// Build information (to be populated by CMake)
+// Build information (REQUIRED - populated by CMake)
 #ifndef BUILD_TIMESTAMP
-#define BUILD_TIMESTAMP __DATE__ " " __TIME__
+#error "BUILD_TIMESTAMP not defined! CMake build info extraction failed."
 #endif
 
 #ifndef GIT_COMMIT_HASH
-#define GIT_COMMIT_HASH "unknown"
+#error "GIT_COMMIT_HASH not defined! CMake Git extraction failed."
 #endif
 
 #ifndef GIT_BRANCH
-#define GIT_BRANCH "main"
+#error "GIT_BRANCH not defined! CMake Git extraction failed."
 #endif
 
 #ifndef GIT_DESCRIBE
-#define GIT_DESCRIBE "unknown"
+#error "GIT_DESCRIBE not defined! CMake Git extraction failed."
+#endif
+
+#ifndef GIT_TAG
+#error "GIT_TAG not defined! CMake Git tag extraction failed."
 #endif
 
 #ifndef BUILD_TYPE
@@ -61,25 +65,25 @@ constexpr const char* ISSUES_URL = "https://github.com/DanAla/FluidNC_gCodeSende
 #endif
 #endif
 
-// Dependency versions (populated by CMake)
+// Dependency versions (REQUIRED - populated by CMake)
 #ifndef COMPILER_VERSION
-#define COMPILER_VERSION "unknown"
+#error "COMPILER_VERSION not defined! CMake compiler detection failed."
 #endif
 
 #ifndef CMAKE_VERSION_STRING
-#define CMAKE_VERSION_STRING "unknown"
+#error "CMAKE_VERSION_STRING not defined! CMake version detection failed."
 #endif
 
 #ifndef WXWIDGETS_VERSION
-#define WXWIDGETS_VERSION "unknown"
+#error "WXWIDGETS_VERSION not defined! CMake wxWidgets detection failed."
 #endif
 
 #ifndef NLOHMANN_JSON_VERSION
-#define NLOHMANN_JSON_VERSION "unknown"
+#error "NLOHMANN_JSON_VERSION not defined! CMake JSON detection failed."
 #endif
 
 #ifndef MINGW_TARGET
-#define MINGW_TARGET "unknown"
+#error "MINGW_TARGET not defined! CMake MinGW detection failed."
 #endif
 
 constexpr const char* BUILD_INFO = BUILD_TIMESTAMP;
