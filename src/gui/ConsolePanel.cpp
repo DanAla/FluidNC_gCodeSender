@@ -4,8 +4,9 @@
  */
 
 #include "ConsolePanel.h"
+#include "MacroConfigDialog.h"
+#include "CommunicationManager.h"
 #include "NotificationSystem.h"
-#include "../core/CommunicationManager.h"
 #include <wx/sizer.h>
 #include <wx/msgdlg.h>
 #include <wx/filedlg.h>
@@ -13,6 +14,9 @@
 #include <wx/notebook.h>
 #include <wx/filename.h>
 #include <algorithm>
+#include <fstream>
+#include <sstream>
+#include <json.hpp>
 
 // Control IDs
 enum {
@@ -28,14 +32,13 @@ enum {
     ID_SHOW_ERROR,
     ID_SHOW_SENT,
     ID_SHOW_RECEIVED,
-    ID_COMMAND_HISTORY
+    ID_COMMAND_HISTORY,
+    ID_CONFIGURE_MACROS
 };
 
 wxBEGIN_EVENT_TABLE(ConsolePanel, wxPanel)
     EVT_BUTTON(ID_SEND_COMMAND, ConsolePanel::OnSendCommand)
     EVT_TEXT_ENTER(ID_COMMAND_INPUT, ConsolePanel::OnCommandEnter)
-    EVT_BUTTON(ID_CLEAR_LOG, ConsolePanel::OnClearLog)
-    EVT_BUTTON(ID_SAVE_LOG, ConsolePanel::OnSaveLog)
     EVT_TEXT(ID_FILTER_TEXT, ConsolePanel::OnFilterChanged)
     EVT_CHECKBOX(ID_SHOW_TIMESTAMPS, ConsolePanel::OnShowTimestamps)
     EVT_CHECKBOX(ID_SHOW_INFO, ConsolePanel::OnShowInfo)
@@ -45,6 +48,7 @@ wxBEGIN_EVENT_TABLE(ConsolePanel, wxPanel)
     EVT_CHECKBOX(ID_SHOW_RECEIVED, ConsolePanel::OnShowReceived)
     EVT_LISTBOX(ID_COMMAND_HISTORY, ConsolePanel::OnHistorySelected)
     EVT_LISTBOX_DCLICK(ID_COMMAND_HISTORY, ConsolePanel::OnHistoryActivated)
+    EVT_BUTTON(ID_CONFIGURE_MACROS, ConsolePanel::OnConfigureMacros)
     EVT_CHAR_HOOK(ConsolePanel::OnKeyDown)
 wxEND_EVENT_TABLE()
 
@@ -70,6 +74,9 @@ ConsolePanel::ConsolePanel(wxWindow* parent)
     m_sessionMachineName = "";
     m_sessionStartTime = "";
     m_sessionLogPath = "";
+    
+    // Initialize console display tracking
+    m_displayedEntries = 0;
     
     CreateControls();
     LoadCommandHistory();
@@ -144,13 +151,7 @@ void ConsolePanel::CreateFilterControls()
     m_showReceived->SetValue(m_showReceivedFlag);
     filterSizer->Add(m_showReceived, 0, wxRIGHT, 10);
     
-    // Control buttons
-    m_clearBtn = new wxButton(m_filterPanel, ID_CLEAR_LOG, "Clear");
-    m_saveBtn = new wxButton(m_filterPanel, ID_SAVE_LOG, "Save Log");
-    
     filterSizer->AddStretchSpacer();
-    filterSizer->Add(m_clearBtn, 0, wxRIGHT, 5);
-    filterSizer->Add(m_saveBtn, 0);
     
     m_filterPanel->SetSizer(filterSizer);
 }
@@ -186,21 +187,32 @@ void ConsolePanel::CreateCommandInterface()
     m_commandHistory->Show(false); // Initially hidden
     commandSizer->Add(m_commandHistory, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 3);
     
-    // Command input line at the bottom
+    // Command input line with macro buttons on the same line
     wxBoxSizer* inputSizer = new wxBoxSizer(wxHORIZONTAL);
     
     m_commandInput = new wxTextCtrl(m_commandPanel, ID_COMMAND_INPUT, wxEmptyString,
                                    wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
     m_sendBtn = new wxButton(m_commandPanel, ID_SEND_COMMAND, "Send");
     
+    // Add command input first
     inputSizer->Add(m_commandInput, 1, wxEXPAND | wxRIGHT, 5);
+    
+    // Create macro buttons panel on the same line
+    CreateMacroButtons();
+    inputSizer->Add(m_macroPanel, 0, wxALIGN_CENTER_VERTICAL);
+    
+    // Keep send button for compatibility but hide it
     inputSizer->Add(m_sendBtn, 0);
+    m_sendBtn->Show(false);
     
     commandSizer->Add(inputSizer, 0, wxEXPAND | wxALL, 3);
     
     // Disable command input until machine is connected
     m_commandInput->Enable(false);
     m_sendBtn->Enable(false);
+    
+    // Load and create default macro buttons
+    LoadMacroButtons();
     
     m_commandPanel->SetSizer(commandSizer);
 }
@@ -225,19 +237,25 @@ void ConsolePanel::AddLogEntry(const std::string& timestamp, const std::string& 
     // Limit log entries to prevent memory issues
     if (m_logEntries.size() > MAX_LOG_ENTRIES) {
         m_logEntries.pop_front();
+        // If we removed entries, we need to rebuild the display
+        m_displayedEntries = 0;
+        UpdateLogDisplay();
+    } else {
+        // Just append the new entry
+        AppendNewLogEntry(entry);
     }
     
     // Write to session log if active
     WriteToSessionLog(timestamp, level, message);
-    
-    UpdateLogDisplay();
 }
 
 void ConsolePanel::UpdateLogDisplay()
 {
     if (!m_logDisplay) return;
     
-    wxString displayText;
+    // Clear the display first
+    m_logDisplay->Clear();
+    m_displayedEntries = 0;
     
     for (const auto& entry : m_logEntries) {
         if (!ShouldShowMessage(entry.level)) continue;
@@ -253,13 +271,40 @@ void ConsolePanel::UpdateLogDisplay()
         
         line += "[" + entry.level + "] " + entry.message + "\n";
         
-        displayText += line;
+        // Get the color for this level and append colored text
+        wxTextAttr attr = GetColorForLevel(entry.level);
+        AppendColoredText(line, attr);
+        m_displayedEntries++;
     }
-    
-    m_logDisplay->SetValue(displayText);
     
     // Scroll to bottom
     m_logDisplay->SetInsertionPointEnd();
+}
+
+void ConsolePanel::AppendNewLogEntry(const LogEntry& entry)
+{
+    if (!m_logDisplay) return;
+    
+    // Check if this entry should be shown
+    if (!ShouldShowMessage(entry.level)) return;
+    if (!FilterMessage(entry.message).empty() && !m_currentFilter.empty()) {
+        if (entry.message.find(m_currentFilter) == std::string::npos) return;
+    }
+    
+    // Format the line
+    wxString line;
+    
+    if (m_showTimestampsFlag) {
+        line += "[" + entry.timestamp + "] ";
+    }
+    
+    line += "[" + entry.level + "] " + entry.message + "\n";
+    
+    // Get the color for this level and append colored text
+    wxTextAttr attr = GetColorForLevel(entry.level);
+    AppendColoredText(line, attr);
+    
+    m_displayedEntries++;
 }
 
 bool ConsolePanel::ShouldShowMessage(const std::string& level) const
@@ -345,6 +390,7 @@ void ConsolePanel::LogWarning(const std::string& warning)
 void ConsolePanel::ClearLog()
 {
     m_logEntries.clear();
+    m_displayedEntries = 0;
     UpdateLogDisplay();
 }
 
@@ -410,6 +456,13 @@ void ConsolePanel::SetConnectionEnabled(bool connected, const std::string& machi
         m_commandInput->Enable(connected);
         m_sendBtn->Enable(connected);
         
+        // Enable/disable macro buttons
+        for (auto& macro : m_macroButtons) {
+            if (macro.button) {
+                macro.button->Enable(connected);
+            }
+        }
+        
         if (connected) {
             // Start session log when machine connects
             if (!m_activeMachine.empty()) {
@@ -417,9 +470,9 @@ void ConsolePanel::SetConnectionEnabled(bool connected, const std::string& machi
                 std::string displayName = machineName.empty() ? m_activeMachine : machineName;
                 StartSessionLog(m_activeMachine, displayName);
             }
-            LogMessage("Machine connected - command input enabled", "INFO");
+            LogMessage("Machine connected - command input and macro buttons enabled", "INFO");
         } else {
-            LogMessage("Machine disconnected - command input disabled", "INFO");
+            LogMessage("Machine disconnected - command input and macro buttons disabled", "INFO");
             // Stop session log when machine disconnects
             StopSessionLog();
         }
@@ -461,20 +514,6 @@ void ConsolePanel::OnCommandEnter(wxCommandEvent& event)
     OnSendCommand(event);
 }
 
-void ConsolePanel::OnClearLog(wxCommandEvent& WXUNUSED(event))
-{
-    int result = wxMessageBox("Are you sure you want to clear the console log?",
-                             "Clear Log", wxYES_NO | wxICON_QUESTION, this);
-    
-    if (result == wxYES) {
-        ClearLog();
-    }
-}
-
-void ConsolePanel::OnSaveLog(wxCommandEvent& WXUNUSED(event))
-{
-    SaveLog();
-}
 
 void ConsolePanel::OnFilterChanged(wxCommandEvent& WXUNUSED(event))
 {
@@ -845,4 +884,438 @@ std::string ConsolePanel::GetSessionLogPath(const std::string& machineName, cons
     std::string filename = cleanMachineName + "_" + timestamp + ".log";
     
     return (logsDir + wxFILE_SEP_PATH + filename).ToStdString();
+}
+
+// Color management for log display
+wxTextAttr ConsolePanel::GetColorForLevel(const std::string& level) const
+{
+    wxTextAttr attr;
+    
+    if (level == "ERROR") {
+        attr.SetTextColour(wxColour(255, 85, 85));  // Light red
+    } else if (level == "WARN") {
+        attr.SetTextColour(wxColour(255, 215, 0));  // Gold/Yellow
+    } else if (level == "INFO") {
+        attr.SetTextColour(wxColour(135, 206, 235)); // Sky blue
+    } else if (level == "SENT") {
+        attr.SetTextColour(*wxWHITE); // White
+        attr.SetFontWeight(wxFONTWEIGHT_BOLD); // Bold
+    } else if (level == "RECV") {
+        attr.SetTextColour(*wxWHITE); // White
+        attr.SetFontWeight(wxFONTWEIGHT_BOLD); // Bold
+    } else {
+        attr.SetTextColour(*wxWHITE); // Default white
+    }
+    
+    // Use monospace font for consistent display
+    wxFont font(9, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+    attr.SetFont(font);
+    
+    return attr;
+}
+
+void ConsolePanel::AppendColoredText(const wxString& text, const wxTextAttr& attr)
+{
+    if (!m_logDisplay) return;
+    
+    // Set insertion point to the end
+    m_logDisplay->SetInsertionPointEnd();
+    
+    // Apply the text attribute and append the text
+    m_logDisplay->SetDefaultStyle(attr);
+    m_logDisplay->AppendText(text);
+    
+    // Scroll to bottom
+    m_logDisplay->SetInsertionPointEnd();
+}
+
+// Macro button implementation
+void ConsolePanel::CreateMacroButtons()
+{
+    m_macroPanel = new wxPanel(m_commandPanel, wxID_ANY);
+    wxBoxSizer* macroSizer = new wxBoxSizer(wxHORIZONTAL);
+    
+    // Add label
+    macroSizer->Add(new wxStaticText(m_macroPanel, wxID_ANY, "Quick Commands:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
+    
+    // Add configure button
+    m_configureMacrosBtn = new wxButton(m_macroPanel, ID_CONFIGURE_MACROS, "Configure...", wxDefaultPosition, wxSize(80, -1));
+    
+    macroSizer->AddStretchSpacer();
+    macroSizer->Add(m_configureMacrosBtn, 0, wxALIGN_CENTER_VERTICAL);
+    
+    m_macroPanel->SetSizer(macroSizer);
+}
+
+void ConsolePanel::LoadMacroButtons()
+{
+    // Clear existing macro buttons (except configure button)
+    m_macroButtons.clear();
+    
+    // Remove existing macro buttons from sizer
+    wxSizer* macroSizer = m_macroPanel->GetSizer();
+    
+    // Remove all but the first (label) and last (configure button) items
+    while (macroSizer->GetItemCount() > 2) {
+        wxSizerItem* item = macroSizer->GetItem(1); // Always remove the second item
+        if (item && item->IsWindow()) {
+            wxWindow* window = item->GetWindow();
+            macroSizer->Detach(window);
+            window->Destroy();
+        } else {
+            macroSizer->Remove(1);
+        }
+    }
+    
+    // Try to load from configuration file
+    std::vector<MacroDefinition> macros;
+    if (LoadMacroConfiguration(macros)) {
+        // Successfully loaded macros from file
+        LogMessage("Loaded " + std::to_string(macros.size()) + " macro configuration(s) from file", "INFO");
+        
+        // Apply the loaded macros
+        int insertPos = 1; // Insert after the label
+        bool isConnected = m_commandInput && m_commandInput->IsEnabled();
+        
+        for (const auto& macroDef : macros) {
+            MacroButton macro;
+            macro.label = macroDef.label;
+            macro.command = macroDef.command;
+            macro.description = macroDef.description;
+            macro.id = MACRO_BUTTON_BASE_ID + (int)m_macroButtons.size();
+            
+            // Create the button
+            macro.button = new wxButton(m_macroPanel, macro.id, macro.label, 
+                                       wxDefaultPosition, wxSize(60, -1));
+            macro.button->SetToolTip(macro.description + " (" + macro.command + ")");
+            macro.button->Enable(isConnected); // Match current connection state
+            
+            // Bind the event
+            macro.button->Bind(wxEVT_COMMAND_BUTTON_CLICKED, &ConsolePanel::OnMacroButton, this, macro.id);
+            
+            // Add to sizer
+            macroSizer->Insert(insertPos++, macro.button, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
+            
+            // Add to vector
+            m_macroButtons.push_back(macro);
+        }
+        
+        // Update layout
+        m_macroPanel->Layout();
+        m_commandPanel->Layout();
+        GetParent()->Layout();
+    } else {
+        // Failed to load or no configuration exists, create defaults
+        LogMessage("No macro configuration found, creating default macros", "INFO");
+        ResetMacroButtons();
+        // Save the defaults as the new configuration
+        std::vector<MacroDefinition> defaultMacros;
+        for (const auto& macro : m_macroButtons) {
+            MacroDefinition def;
+            def.label = macro.label;
+            def.command = macro.command;
+            def.description = macro.description;
+            defaultMacros.push_back(def);
+        }
+        SaveMacroConfiguration(defaultMacros);
+    }
+}
+
+void ConsolePanel::ResetMacroButtons()
+{
+    // Define default macro buttons
+    struct DefaultMacro {
+        std::string label;
+        std::string command;
+        std::string description;
+    };
+    
+    std::vector<DefaultMacro> defaultMacros = {
+        {"$", "$", "Single status report"},
+        {"$$", "$$", "Double status report (detailed)"},
+        {"Reset", "\x18", "Soft reset (Ctrl-X)"},
+        {"Home", "$H", "Homing cycle"},
+        {"Unlock", "$X", "Kill alarm lock"}
+    };
+    
+    // Create macro buttons
+    wxSizer* macroSizer = m_macroPanel->GetSizer();
+    int insertPos = 1; // Insert after the label
+    
+    for (const auto& defaultMacro : defaultMacros) {
+        MacroButton macro;
+        macro.label = defaultMacro.label;
+        macro.command = defaultMacro.command;
+        macro.description = defaultMacro.description;
+        macro.id = MACRO_BUTTON_BASE_ID + (int)m_macroButtons.size();
+        
+        // Create the button
+        macro.button = new wxButton(m_macroPanel, macro.id, macro.label, 
+                                   wxDefaultPosition, wxSize(60, -1));
+        macro.button->SetToolTip(macro.description + " (" + macro.command + ")");
+        macro.button->Enable(false); // Disable until machine connects
+        
+        // Bind the event
+        macro.button->Bind(wxEVT_COMMAND_BUTTON_CLICKED, &ConsolePanel::OnMacroButton, this, macro.id);
+        
+        // Add to sizer
+        macroSizer->Insert(insertPos++, macro.button, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
+        
+        // Add to vector
+        m_macroButtons.push_back(macro);
+    }
+    
+    // Update layout
+    m_macroPanel->Layout();
+    m_commandPanel->Layout();
+    GetParent()->Layout();
+}
+
+void ConsolePanel::SaveMacroButtons()
+{
+    // Convert current macro buttons to MacroDefinition vector
+    std::vector<MacroDefinition> macros;
+    for (const auto& macro : m_macroButtons) {
+        MacroDefinition def;
+        def.label = macro.label;
+        def.command = macro.command;
+        def.description = macro.description;
+        macros.push_back(def);
+    }
+    
+    // Save to configuration file
+    if (SaveMacroConfiguration(macros)) {
+        LogMessage("Saved " + std::to_string(macros.size()) + " macro configuration(s) to file", "INFO");
+    } else {
+        LogError("Failed to save macro configuration to file");
+    }
+}
+
+void ConsolePanel::OnMacroButton(wxCommandEvent& event)
+{
+    int buttonId = event.GetId();
+    
+    // Find the macro button
+    for (const auto& macro : m_macroButtons) {
+        if (macro.id == buttonId) {
+            if (!m_activeMachine.empty()) {
+                // Process the command
+                std::string processedCmd = ProcessSpecialCharacters(macro.command);
+                
+                // Add to history
+                AddToHistory(macro.command);
+                
+                // Send the command
+                bool sent = CommunicationManager::Instance().SendCommand(m_activeMachine, processedCmd);
+                
+                if (sent) {
+                    // Command sent successfully - will be logged by callback
+                    LogMessage("Macro button: " + macro.label + " (" + macro.command + ")", "INFO");
+                } else {
+                    LogError("Failed to send macro command: " + macro.command + " (machine not connected)");
+                }
+            } else {
+                LogError("No active machine for macro command: " + macro.label);
+            }
+            break;
+        }
+    }
+}
+
+void ConsolePanel::OnConfigureMacros(wxCommandEvent& WXUNUSED(event))
+{
+    // Convert current macro buttons to MacroDefinition vector
+    std::vector<MacroDefinition> currentMacros;
+    for (const auto& macro : m_macroButtons) {
+        MacroDefinition def;
+        def.label = macro.label;
+        def.command = macro.command;
+        def.description = macro.description;
+        currentMacros.push_back(def);
+    }
+    
+    // Show the macro configuration dialog
+    MacroConfigDialog dialog(this, currentMacros);
+    if (dialog.ShowModal() == wxID_OK) {
+        // Apply the changes from the dialog
+        ApplyMacroChanges(dialog.GetMacros());
+        
+        NotificationSystem::Instance().ShowSuccess(
+            "Macros Updated", 
+            "Quick command macros have been updated successfully"
+        );
+    }
+}
+
+void ConsolePanel::ApplyMacroChanges(const std::vector<MacroDefinition>& macros)
+{
+    // Clear existing macro buttons (except configure button)
+    m_macroButtons.clear();
+    
+    // Remove existing macro buttons from sizer
+    wxSizer* macroSizer = m_macroPanel->GetSizer();
+    
+    // Remove all but the first (label) and last (configure button) items
+    while (macroSizer->GetItemCount() > 2) {
+        wxSizerItem* item = macroSizer->GetItem(1); // Always remove the second item
+        if (item && item->IsWindow()) {
+            wxWindow* window = item->GetWindow();
+            macroSizer->Detach(window);
+            window->Destroy();
+        } else {
+            macroSizer->Remove(1);
+        }
+    }
+    
+    // Create new macro buttons from the provided definitions
+    int insertPos = 1; // Insert after the label
+    bool isConnected = m_commandInput && m_commandInput->IsEnabled(); // Check current connection state
+    
+    for (const auto& macroDef : macros) {
+        MacroButton macro;
+        macro.label = macroDef.label;
+        macro.command = macroDef.command;
+        macro.description = macroDef.description;
+        macro.id = MACRO_BUTTON_BASE_ID + (int)m_macroButtons.size();
+        
+        // Create the button
+        macro.button = new wxButton(m_macroPanel, macro.id, macro.label, 
+                                   wxDefaultPosition, wxSize(60, -1));
+        macro.button->SetToolTip(macro.description + " (" + macro.command + ")");
+        macro.button->Enable(isConnected); // Match current connection state
+        
+        // Bind the event
+        macro.button->Bind(wxEVT_COMMAND_BUTTON_CLICKED, &ConsolePanel::OnMacroButton, this, macro.id);
+        
+        // Add to sizer
+        macroSizer->Insert(insertPos++, macro.button, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
+        
+        // Add to vector
+        m_macroButtons.push_back(macro);
+    }
+    
+    // Update layout
+    m_macroPanel->Layout();
+    m_commandPanel->Layout();
+    GetParent()->Layout();
+    
+    // Automatically save the new configuration
+    SaveMacroButtons();
+}
+
+// Macro configuration persistence implementation
+std::string ConsolePanel::GetMacroConfigPath() const
+{
+    // Create config directory in the application directory
+    wxString appDir = wxGetCwd();
+    wxString configDir = appDir + wxFILE_SEP_PATH + "config";
+    
+    // Create config directory if it doesn't exist
+    if (!wxDirExists(configDir)) {
+        wxMkdir(configDir);
+    }
+    
+    // Return path to macro configuration file
+    return (configDir + wxFILE_SEP_PATH + "macros.json").ToStdString();
+}
+
+bool ConsolePanel::LoadMacroConfiguration(std::vector<MacroDefinition>& macros) const
+{
+    std::string configPath = GetMacroConfigPath();
+    
+    // Check if configuration file exists
+    if (!wxFileExists(configPath)) {
+        return false; // No configuration file exists
+    }
+    
+    try {
+        // Read the configuration file
+        std::ifstream configFile(configPath);
+        if (!configFile.is_open()) {
+            return false;
+        }
+        
+        // Parse JSON
+        nlohmann::json root;
+        
+        try {
+            configFile >> root;
+        } catch (const std::exception& e) {
+            configFile.close();
+            return false;
+        }
+        
+        configFile.close();
+        
+        // Check if it's a valid macro configuration
+        if (!root.is_object() || !root.contains("macros") || !root["macros"].is_array()) {
+            return false;
+        }
+        
+        // Clear existing macros and load from JSON
+        macros.clear();
+        
+        const nlohmann::json& macroArray = root["macros"];
+        for (const auto& macroJson : macroArray) {
+            if (macroJson.is_object() &&
+                macroJson.contains("label") && macroJson["label"].is_string() &&
+                macroJson.contains("command") && macroJson["command"].is_string() &&
+                macroJson.contains("description") && macroJson["description"].is_string()) {
+                
+                MacroDefinition macro;
+                macro.label = macroJson["label"].get<std::string>();
+                macro.command = macroJson["command"].get<std::string>();
+                macro.description = macroJson["description"].get<std::string>();
+                
+                macros.push_back(macro);
+            }
+        }
+        
+        return true;
+        
+    } catch (const std::exception& e) {
+        // JSON parsing or file I/O error
+        return false;
+    }
+}
+
+bool ConsolePanel::SaveMacroConfiguration(const std::vector<MacroDefinition>& macros) const
+{
+    std::string configPath = GetMacroConfigPath();
+    
+    try {
+        // Create JSON structure
+        nlohmann::json root = nlohmann::json::object();
+        nlohmann::json macroArray = nlohmann::json::array();
+        
+        // Add version info
+        root["version"] = "1.0";
+        root["description"] = "FluidNC gCode Sender Macro Configuration";
+        
+        // Convert macros to JSON
+        for (const auto& macro : macros) {
+            nlohmann::json macroJson = nlohmann::json::object();
+            macroJson["label"] = macro.label;
+            macroJson["command"] = macro.command;
+            macroJson["description"] = macro.description;
+            
+            macroArray.push_back(macroJson);
+        }
+        
+        root["macros"] = macroArray;
+        
+        // Write to file with pretty formatting
+        std::ofstream configFile(configPath);
+        if (!configFile.is_open()) {
+            return false;
+        }
+        
+        configFile << root.dump(2); // Pretty print with 2-space indentation
+        configFile.close();
+        return true;
+        
+    } catch (const std::exception& e) {
+        // JSON creation or file I/O error
+        return false;
+    }
 }

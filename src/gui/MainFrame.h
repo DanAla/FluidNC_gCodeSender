@@ -117,6 +117,7 @@ private:
     void OnToolbarEmergencyStop(wxCommandEvent& event);
     void OnToolbarHome(wxCommandEvent& event);
     void OnToolbarJog(wxCommandEvent& event);
+    void OnToolbarConnectLayout(wxCommandEvent& event);
     
     // Layout handlers
     // TODO: Re-add AUI handlers when AUI is enabled
@@ -131,6 +132,8 @@ private:
     // Layout management
     void CreateDefaultLayout();
     void SetupConnectionFirstLayout(); // Connection-focused startup layout
+    void SaveConnectionFirstLayout(); // Save the connection-first layout
+    void RestoreConnectionFirstLayout(); // Restore connection-first layout
     void SaveWindowGeometry();
     void RestoreWindowGeometry();
     void UpdateMenuItems();
@@ -177,6 +180,15 @@ private:
     
     // Current machine context (simplified)
     // std::string m_currentMachine;
+    
+    // Connection state tracking
+    bool m_hasMachineConnected = false;
+    
+    // Helper methods
+    bool HasMachineConnected() const { return m_hasMachineConnected; }
+    void SetMachineConnected(bool connected) { m_hasMachineConnected = connected; }
+    bool ShouldAllowPanelAccess(PanelID panelId) const;
+    void MinimizeNonEssentialPanels();
     
     wxDECLARE_EVENT_TABLE();
 };

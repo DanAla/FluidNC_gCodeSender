@@ -154,9 +154,10 @@ void MachineManagerPanel::CreateMachineDetails()
     gridSizer->Add(m_nameLabel, 1, wxEXPAND);
     
     gridSizer->Add(new wxStaticText(m_detailsPanel, wxID_ANY, "Description:"), 0, wxALIGN_TOP);
+    m_descriptionSizer = new wxBoxSizer(wxVERTICAL);
     m_descriptionLabel = new wxStaticText(m_detailsPanel, wxID_ANY, "-");
-    m_descriptionLabel->Wrap(300); // Allow text wrapping for long descriptions
-    gridSizer->Add(m_descriptionLabel, 1, wxEXPAND);
+    m_descriptionSizer->Add(m_descriptionLabel, 1, wxEXPAND);
+    gridSizer->Add(m_descriptionSizer, 1, wxEXPAND);
     
     gridSizer->Add(new wxStaticText(m_detailsPanel, wxID_ANY, "Host:"), 0, wxALIGN_CENTER_VERTICAL);
     m_hostLabel = new wxStaticText(m_detailsPanel, wxID_ANY, "-");
@@ -196,6 +197,9 @@ void MachineManagerPanel::CreateMachineDetails()
     detailsSizer->AddStretchSpacer();
     
     m_detailsPanel->SetSizer(detailsSizer);
+    
+    // Bind size event for dynamic text wrapping
+    m_detailsPanel->Bind(wxEVT_SIZE, &MachineManagerPanel::OnDetailsPanelResize, this);
     
     // Initially disable connection buttons
     m_editBtn->Enable(false);
@@ -403,7 +407,10 @@ void MachineManagerPanel::UpdateMachineDetails()
         // Set description with proper handling for empty descriptions
         wxString description = selectedMachine->description.empty() ? "No description" : selectedMachine->description;
         m_descriptionLabel->SetLabel(description);
-        m_descriptionLabel->Wrap(300); // Re-wrap after setting new text
+        
+        // Initial wrap
+        m_detailsPanel->Layout();
+        m_descriptionLabel->Wrap(m_descriptionSizer->GetSize().GetWidth());
         
         m_hostLabel->SetLabel(selectedMachine->host);
         m_portLabel->SetLabel(std::to_string(selectedMachine->port));
@@ -445,6 +452,15 @@ void MachineManagerPanel::UpdateMachineDetails()
     }
     
     m_detailsPanel->Layout();
+}
+
+void MachineManagerPanel::OnDetailsPanelResize(wxSizeEvent& event)
+{
+    if (m_descriptionLabel && m_descriptionSizer)
+    {
+        m_descriptionLabel->Wrap(m_descriptionSizer->GetSize().GetWidth());
+    }
+    event.Skip();
 }
 
 // Event handlers

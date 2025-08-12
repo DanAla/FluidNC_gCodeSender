@@ -63,6 +63,7 @@ private:
     void OnImportConfig(wxCommandEvent& event);
     void OnExportConfig(wxCommandEvent& event);
     void OnScanNetwork(wxCommandEvent& event);
+    void OnDetailsPanelResize(wxSizeEvent& event);
     
     // UI Creation
     void CreateControls();
@@ -100,6 +101,7 @@ private:
     wxPanel* m_detailsPanel;
     wxStaticText* m_nameLabel;
     wxStaticText* m_descriptionLabel;
+    wxBoxSizer* m_descriptionSizer;
     wxStaticText* m_hostLabel;
     wxStaticText* m_portLabel;
     wxStaticText* m_statusLabel;

@@ -44,7 +44,9 @@ enum {
     ID_WINDOW_GCODE_EDITOR,
     ID_WINDOW_MACRO,
     ID_WINDOW_CONSOLE,
-    ID_WINDOW_RESET_LAYOUT
+    ID_WINDOW_RESET_LAYOUT,
+    // Toolbar items
+    ID_TOOLBAR_CONNECT_LAYOUT
 };
 
 // Event table
@@ -64,6 +66,8 @@ wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
     EVT_MENU(ID_WINDOW_MACRO, MainFrame::OnWindowMacro)
     EVT_MENU(ID_WINDOW_CONSOLE, MainFrame::OnWindowConsole)
     EVT_MENU(ID_WINDOW_RESET_LAYOUT, MainFrame::OnWindowResetLayout)
+    // Toolbar events
+    EVT_MENU(ID_TOOLBAR_CONNECT_LAYOUT, MainFrame::OnToolbarConnectLayout)
     EVT_CLOSE(MainFrame::OnClose)
 wxEND_EVENT_TABLE()
 
@@ -231,6 +235,31 @@ void MainFrame::OnTestErrorHandler(wxCommandEvent& WXUNUSED(event))
                 // This will trigger a wxWidgets assertion which our handler will catch
                 wxASSERT_MSG(false, "This is a test assertion to demonstrate assertion handling");
                 break;
+        }
+    }
+}
+
+// Helper methods implementation
+bool MainFrame::ShouldAllowPanelAccess(PanelID panelId) const {
+    // Always allow access to essential panels
+    if (panelId == PANEL_MACHINE_MANAGER || panelId == PANEL_CONSOLE) {
+        return true;
+    }
+    
+    // For other panels, require machine connection
+    return HasMachineConnected();
+}
+
+void MainFrame::MinimizeNonEssentialPanels() {
+    // Hide all non-essential panels (they can be restored later)
+    for (auto& panelInfo : m_panels) {
+        if (panelInfo.id != PANEL_MACHINE_MANAGER && panelInfo.id != PANEL_CONSOLE) {
+            wxAuiPaneInfo& pane = m_auiManager.GetPane(panelInfo.name);
+            if (pane.IsOk() && pane.IsShown()) {
+                // Hide the panel (user can restore via menu or when machine connects)
+                pane.Show(false);
+                LOG_INFO("Hid non-essential panel: " + panelInfo.name.ToStdString());
+            }
         }
     }
 }
@@ -403,6 +432,10 @@ void MainFrame::UpdateMachineStatus(const std::string& machineId, const std::str
 
 void MainFrame::UpdateConnectionStatus(const std::string& machineId, bool connected) {
     SetStatusText(connected ? "Connected" : "Disconnected", 2);
+    SetMachineConnected(connected);
+    
+    // Update menu states based on connection status
+    UpdateMenuItems();
 }
 
 void MainFrame::UpdateDRO(const std::string& machineId, const std::vector<float>& mpos, const std::vector<float>& wpos) {
@@ -458,6 +491,12 @@ void MainFrame::OnWindowConsole(wxCommandEvent& WXUNUSED(event)) {
 void MainFrame::OnWindowResetLayout(wxCommandEvent& WXUNUSED(event)) {
     LOG_INFO("Window menu: Reset Layout");
     ResetLayout();
+}
+
+// Toolbar event handlers
+void MainFrame::OnToolbarConnectLayout(wxCommandEvent& WXUNUSED(event)) {
+    LOG_INFO("Toolbar: Restore Connection Layout");
+    RestoreConnectionFirstLayout();
 }
 
 void MainFrame::RestoreWindowGeometry()
@@ -601,8 +640,9 @@ void MainFrame::CreatePanels()
         consoleInfo.name = "console";
         consoleInfo.title = "Terminal Console";
         consoleInfo.panel = new ConsolePanel(this);
-        consoleInfo.defaultVisible = false;  // No default visibility - state dependent
-        consoleInfo.defaultPosition = "";      // No default position - state dependent
+        consoleInfo.canClose = true;             // Allow closing
+        consoleInfo.defaultVisible = false;      // No default visibility - state dependent
+        consoleInfo.defaultPosition = "";        // No default position - state dependent
         consoleInfo.defaultSize = wxSize(800, 150);
         m_panels.push_back(consoleInfo);
         
@@ -706,6 +746,7 @@ void MainFrame::CreateToolBars()
     wxBitmap newBitmap = wxArtProvider::GetBitmap(wxART_NEW, wxART_TOOLBAR, wxSize(16, 16));
     wxBitmap openBitmap = wxArtProvider::GetBitmap(wxART_FILE_OPEN, wxART_TOOLBAR, wxSize(16, 16));
     wxBitmap saveBitmap = wxArtProvider::GetBitmap(wxART_FILE_SAVE, wxART_TOOLBAR, wxSize(16, 16));
+    wxBitmap connectBitmap = wxArtProvider::GetBitmap(wxART_GO_FORWARD, wxART_TOOLBAR, wxSize(16, 16));
     
     // Main toolbar with common actions
     m_mainToolbar = CreateToolBar(wxTB_HORIZONTAL | wxTB_TEXT | wxTB_FLAT, wxID_ANY, "Main Toolbar");
@@ -716,6 +757,9 @@ void MainFrame::CreateToolBars()
     m_mainToolbar->AddTool(wxID_OPEN, "Open", openBitmap, "Open file");
     m_mainToolbar->AddTool(wxID_SAVE, "Save", saveBitmap, "Save file");
     m_mainToolbar->AddSeparator();
+    
+    // Add Connect layout button
+    m_mainToolbar->AddTool(ID_TOOLBAR_CONNECT_LAYOUT, "Connect", connectBitmap, "Restore Connection Layout (Machine Manager + Console)");
     
     m_mainToolbar->Realize();
 }
@@ -779,24 +823,33 @@ void MainFrame::SetupConnectionFirstLayout()
                    .Row(0);     // First row
             m_auiManager.AddPane(panelInfo.panel, paneInfo);
         } else if (panelInfo.id == PANEL_CONSOLE) {
-            // Add Console panel to fill center - 60% width
+            // Add Console panel to fill center (remaining space after left Machine Manager)
             wxAuiPaneInfo paneInfo;
             paneInfo.Name(panelInfo.name)
                    .Caption(panelInfo.title)
                    .BestSize(720, 600)
                    .MinSize(400, 150)
-                   .CloseButton(panelInfo.canClose)
-                   .MaximizeButton(true)
-                   .MinimizeButton(false)
-                   .PinButton(true)
+                   .CloseButton(true)      // Allow closing
+                   .MaximizeButton(true)   // Allow maximizing
+                   .MinimizeButton(true)   // Allow minimizing
+                   .PinButton(true)        // Allow pinning/unpinning (floating)
                    .Dock()
                    .Resizable(true)
-                   .CenterPane() // Fill the center area (remaining space)
-                   .Layer(0);    // Same layer as machine manager
+                   .Floatable(true)        // Make it floatable
+                   .Movable(true)          // Allow moving to other positions
+                   .Center()               // Fill center area (remaining space)
+                   .Layer(0)               // Same layer as machine manager
+                   .Row(0);                // Same row as machine manager
             m_auiManager.AddPane(panelInfo.panel, paneInfo);
         }
         // All other panels remain hidden until connection is established
     }
+    
+    // Update the AUI manager to apply the layout
+    m_auiManager.Update();
+    
+    // Save this as the default "Connection-First" layout
+    SaveConnectionFirstLayout();
 }
 
 // Add a panel to the AUI manager
@@ -917,4 +970,115 @@ void MainFrame::SetupCommunicationCallbacks()
     });
     
     LOG_INFO("Communication callbacks configured for real machine communication");
+}
+
+// Save the Connection-First layout state
+void MainFrame::SaveConnectionFirstLayout()
+{
+    try {
+        // Save the AUI perspective string for the connection-first layout
+        wxString perspective = m_auiManager.SavePerspective();
+        
+        // Save to StateManager with a special key for connection-first layout
+        StateManager::getInstance().setValue("ConnectionFirstLayout", perspective.ToStdString());
+        
+        LOG_INFO("Saved Connection-First layout perspective");
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to save Connection-First layout: " + std::string(e.what()));
+    }
+}
+
+// Restore the Connection-First layout state
+void MainFrame::RestoreConnectionFirstLayout()
+{
+    try {
+        // First minimize non-essential panels instead of hiding them
+        MinimizeNonEssentialPanels();
+        
+        // Ensure Machine Manager and Console are visible with proper settings
+        for (auto& panelInfo : m_panels) {
+            if (panelInfo.id == PANEL_MACHINE_MANAGER || panelInfo.id == PANEL_CONSOLE) {
+                wxAuiPaneInfo& pane = m_auiManager.GetPane(panelInfo.name);
+                if (pane.IsOk()) {
+                    // Update the pane to ensure it has all the title buttons and is flexible
+                    if (panelInfo.id == PANEL_MACHINE_MANAGER) {
+                        pane.Show(true)
+                           .Left()
+                           .Layer(0)
+                           .Row(0)
+                           .BestSize(480, 600)
+                           .MinSize(300, 400)
+                           .CloseButton(panelInfo.canClose)
+                           .MaximizeButton(true)
+                           .MinimizeButton(true)
+                           .PinButton(true)
+                           .Resizable(true)
+                           .Movable(true)
+                           .Floatable(true);
+                    } else if (panelInfo.id == PANEL_CONSOLE) {
+                        pane.Show(true)
+                           .Center()
+                           .Layer(0)
+                           .Row(0)
+                           .BestSize(720, 600)
+                           .MinSize(400, 150)
+                           .CloseButton(true)
+                           .MaximizeButton(true)
+                           .MinimizeButton(true)
+                           .PinButton(true)
+                           .Resizable(true)
+                           .Movable(true)
+                           .Floatable(true);
+                    }
+                } else {
+                    // Panel not in AUI manager, add it with proper settings
+                    wxAuiPaneInfo paneInfo;
+                    if (panelInfo.id == PANEL_MACHINE_MANAGER) {
+                        paneInfo.Name(panelInfo.name)
+                               .Caption(panelInfo.title)
+                               .BestSize(480, 600)
+                               .MinSize(300, 400)
+                               .Left()
+                               .Layer(0)
+                               .Row(0);
+                    } else {
+                        paneInfo.Name(panelInfo.name)
+                               .Caption(panelInfo.title)
+                               .BestSize(720, 600)
+                               .MinSize(400, 150)
+                               .Center()
+                               .Layer(0)
+                               .Row(0);
+                    }
+                    paneInfo.CloseButton(panelInfo.canClose)
+                           .MaximizeButton(true)
+                           .MinimizeButton(true)
+                           .PinButton(true)
+                           .Dock()
+                           .Resizable(true)
+                           .Movable(true)
+                           .Floatable(true);
+                    m_auiManager.AddPane(panelInfo.panel, paneInfo);
+                }
+            }
+        }
+        
+        m_auiManager.Update();
+        UpdateMenuItems();
+        
+        // Save this layout for future use
+        SaveConnectionFirstLayout();
+        
+        // Show notification about layout restoration
+        NOTIFY_SUCCESS("Connection Layout Restored", "Essential panels (Machine Manager + Console) are now active. Other panels are minimized.");
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to restore Connection-First layout: " + std::string(e.what()));
+        
+        // Fallback to creating a new connection-first layout
+        SetupConnectionFirstLayout();
+        m_auiManager.Update();
+        UpdateMenuItems();
+    }
 }

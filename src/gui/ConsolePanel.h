@@ -15,6 +15,17 @@
 #include <deque>
 #include <fstream>
 
+// Forward declarations
+struct MacroDefinition;
+
+// Log entry structure
+struct LogEntry {
+    std::string timestamp;
+    std::string level;
+    std::string message;
+    std::string machineId;
+};
+
 /**
  * Terminal Panel - real-time machine communication interface
  * Features:
@@ -26,6 +37,8 @@
  * - Export/save communication logs
  * - Multi-protocol support (Telnet, USB, UART)
  * - Professional terminal emulation
+ * - Colored output for different message types
+ * - Configurable macro buttons for common commands
  */
 class ConsolePanel : public wxPanel
 {
@@ -55,13 +68,17 @@ public:
     
     // Real communication integration
     void SetActiveMachine(const std::string& machineId, const std::string& machineName = "");
+    
+    // Macro button management
+    void LoadMacroButtons();
+    void SaveMacroButtons();
+    void ResetMacroButtons();
+    void ApplyMacroChanges(const std::vector<MacroDefinition>& macros);
 
 private:
     // Event handlers
     void OnSendCommand(wxCommandEvent& event);
     void OnCommandEnter(wxCommandEvent& event);
-    void OnClearLog(wxCommandEvent& event);
-    void OnSaveLog(wxCommandEvent& event);
     void OnFilterChanged(wxCommandEvent& event);
     void OnShowTimestamps(wxCommandEvent& event);
     void OnShowInfo(wxCommandEvent& event);
@@ -73,14 +90,24 @@ private:
     void OnHistoryActivated(wxCommandEvent& event);
     void OnKeyDown(wxKeyEvent& event);
     
+    // Macro button event handlers
+    void OnMacroButton(wxCommandEvent& event);
+    void OnConfigureMacros(wxCommandEvent& event);
+    
     // UI Creation
     void CreateControls();
     void CreateLogDisplay();
     void CreateCommandInterface();
     void CreateFilterControls();
+    void CreateMacroButtons();
+    
+    // Color management
+    wxTextAttr GetColorForLevel(const std::string& level) const;
+    void AppendColoredText(const wxString& text, const wxTextAttr& attr);
     
     // Log management
     void UpdateLogDisplay();
+    void AppendNewLogEntry(const LogEntry& entry);
     void AddLogEntry(const std::string& timestamp, const std::string& level, 
                     const std::string& message);
     void LoadCommandHistory();
@@ -104,12 +131,18 @@ private:
     void WriteToSessionLog(const std::string& timestamp, const std::string& level, const std::string& message);
     std::string GetSessionLogPath(const std::string& machineName, const std::string& timestamp) const;
     
-    // Log entry structure
-    struct LogEntry {
-        std::string timestamp;
-        std::string level;
-        std::string message;
-        std::string machineId;
+    // Macro configuration persistence
+    std::string GetMacroConfigPath() const;
+    bool LoadMacroConfiguration(std::vector<MacroDefinition>& macros) const;
+    bool SaveMacroConfiguration(const std::vector<MacroDefinition>& macros) const;
+    
+    // Macro button structure
+    struct MacroButton {
+        std::string label;
+        std::string command;
+        std::string description;
+        wxButton* button;
+        int id;
     };
     
     // UI Components
@@ -126,14 +159,16 @@ private:
     wxCheckBox* m_showError;
     wxCheckBox* m_showSent;
     wxCheckBox* m_showReceived;
-    wxButton* m_clearBtn;
-    wxButton* m_saveBtn;
     
     // Command interface panel
     wxPanel* m_commandPanel;
     wxTextCtrl* m_commandInput;
-    wxButton* m_sendBtn;
+    wxButton* m_sendBtn;  // Keep for compatibility, but will be hidden
     wxListBox* m_commandHistory;
+    
+    // Macro button panel
+    wxPanel* m_macroPanel;
+    wxButton* m_configureMacrosBtn;
     
     // Data
     std::deque<LogEntry> m_logEntries;
@@ -163,6 +198,13 @@ private:
     std::string m_sessionMachineName;
     std::string m_sessionStartTime;
     bool m_sessionLogActive;
+    
+    // Macro buttons
+    std::vector<MacroButton> m_macroButtons;
+    static const int MACRO_BUTTON_BASE_ID = 5000;
+    
+    // Console display tracking
+    size_t m_displayedEntries;
     
     // Limits
     static const size_t MAX_LOG_ENTRIES = 1000;
