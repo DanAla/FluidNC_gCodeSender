@@ -1081,7 +1081,7 @@ void MainFrame::UpdateStatusBar()
         SetStatusText(mainStatus + " (" + timeStr + ")", STATUS_MAIN);
         
         // STATUS_MACHINE field - Current active machine info (if not already set by UpdateMachineStatus)
-        wxString currentMachineText = GetStatusText(STATUS_MACHINE);
+        wxString currentMachineText = GetStatusBar()->GetStatusText(STATUS_MACHINE);
         if (currentMachineText == "No machine" || currentMachineText.IsEmpty()) {
             if (!connectedMachineName.empty()) {
                 SetStatusText(connectedMachineName + ": Ready", STATUS_MACHINE);
@@ -1093,7 +1093,7 @@ void MainFrame::UpdateStatusBar()
         }
         
         // STATUS_CONNECTION field - Connection status summary (if not already set by UpdateConnectionStatus)
-        wxString currentConnectionText = GetStatusText(STATUS_CONNECTION);
+        wxString currentConnectionText = GetStatusBar()->GetStatusText(STATUS_CONNECTION);
         if (currentConnectionText == "Disconnected" && anyConnected) {
             if (connectedCount == 1) {
                 SetStatusText("Connected", STATUS_CONNECTION);
@@ -1105,7 +1105,7 @@ void MainFrame::UpdateStatusBar()
         }
         
         // STATUS_POSITION field - Position info (if not already set by UpdateDRO)
-        wxString currentPositionText = GetStatusText(STATUS_POSITION);
+        wxString currentPositionText = GetStatusBar()->GetStatusText(STATUS_POSITION);
         if (currentPositionText == "Position: ---" && anyConnected) {
             // Try to get position from CommunicationManager for the active machine
             // This is a fallback - normally UpdateDRO handles this
