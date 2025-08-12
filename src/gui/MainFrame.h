@@ -139,6 +139,7 @@ private:
     void UpdateMenuItems();
     void UpdateToolbarStates();
     void UpdateStatusBar();
+    void UpdateStatusBarFieldWidths();
     
     // Utility functions
     PanelInfo* FindPanelInfo(PanelID id);

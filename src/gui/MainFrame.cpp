@@ -372,6 +372,66 @@ void MainFrame::ShowPanel(PanelID panelId, bool show) {
     }
 }
 
+// Dynamically update status bar field widths based on content
+void MainFrame::UpdateStatusBarFieldWidths()
+{
+    if (!m_statusBar) return;
+    
+    try {
+        // Get the current text in each field
+        wxString mainText = m_statusBar->GetStatusText(STATUS_MAIN);
+        wxString machineText = m_statusBar->GetStatusText(STATUS_MACHINE); 
+        wxString connectionText = m_statusBar->GetStatusText(STATUS_CONNECTION);
+        wxString positionText = m_statusBar->GetStatusText(STATUS_POSITION);
+        
+        // Calculate required widths for each field using text extent
+        wxClientDC dc(m_statusBar);
+        dc.SetFont(m_statusBar->GetFont());
+        
+        // Add padding for each field (left margin, right margin, and some extra space)
+        int padding = 20;
+        
+        // Calculate width needed for each field
+        wxSize machineSize = dc.GetTextExtent(machineText);
+        int machineWidth = machineSize.GetWidth() + padding;
+        
+        wxSize connectionSize = dc.GetTextExtent(connectionText);
+        int connectionWidth = connectionSize.GetWidth() + padding;
+        
+        wxSize positionSize = dc.GetTextExtent(positionText);
+        int positionWidth = positionSize.GetWidth() + padding;
+        
+        // Set minimum widths to prevent fields from becoming too small
+        int minMachineWidth = 120;
+        int minConnectionWidth = 100;  // Minimum for "Disconnected"
+        int minPositionWidth = 180;    // Minimum for position coordinates
+        
+        // Apply minimums
+        machineWidth = std::max(machineWidth, minMachineWidth);
+        connectionWidth = std::max(connectionWidth, minConnectionWidth);
+        positionWidth = std::max(positionWidth, minPositionWidth);
+        
+        // Set up the field widths array
+        // Field 0 (STATUS_MAIN) uses -1 to auto-size (takes remaining space)
+        // Other fields use calculated widths
+        int widths[STATUS_COUNT] = { 
+            -1,                 // STATUS_MAIN - auto-size to fill remaining space
+            machineWidth,       // STATUS_MACHINE - dynamic width based on content
+            connectionWidth,    // STATUS_CONNECTION - dynamic width based on content
+            positionWidth       // STATUS_POSITION - dynamic width based on content
+        };
+        
+        // Apply the new widths
+        m_statusBar->SetStatusWidths(STATUS_COUNT, widths);
+        
+        LOG_INFO(wxString::Format("Status bar widths updated: Machine=%d, Connection=%d, Position=%d", 
+                                machineWidth, connectionWidth, positionWidth).ToStdString());
+                                
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to update status bar field widths: " + std::string(e.what()));
+    }
+}
+
 void MainFrame::TogglePanelVisibility(PanelID panelId) {
     bool isVisible = IsPanelVisible(panelId);
     ShowPanel(panelId, !isVisible);
@@ -482,6 +542,9 @@ void MainFrame::UpdateConnectionStatus(const std::string& machineId, bool connec
     
     // Update the complete status bar
     UpdateStatusBar();
+    
+    // Update field widths since connection status changed
+    UpdateStatusBarFieldWidths();
 }
 
 void MainFrame::UpdateDRO(const std::string& machineId, const std::vector<float>& mpos, const std::vector<float>& wpos) {
@@ -824,15 +887,14 @@ void MainFrame::CreateStatusBar()
 {
     m_statusBar = wxFrame::CreateStatusBar(STATUS_COUNT);
     
-    // Set status bar field widths
-    int widths[STATUS_COUNT] = { -1, 150, 100, 200 }; // Main field auto-sizes
-    m_statusBar->SetStatusWidths(STATUS_COUNT, widths);
-    
-    // Set initial status
+    // Set initial status text first
     SetStatusText("Ready", STATUS_MAIN);
     SetStatusText("No machine", STATUS_MACHINE);
     SetStatusText("Disconnected", STATUS_CONNECTION);
     SetStatusText("Position: ---", STATUS_POSITION);
+    
+    // Set status bar field widths - CONNECTION field will be dynamically sized
+    UpdateStatusBarFieldWidths();
 }
 
 // Setup AUI manager and add panels
