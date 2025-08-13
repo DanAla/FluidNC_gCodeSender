@@ -5,6 +5,7 @@
 
 #include "MachineManagerPanel.h"
 #include "AddMachineDialog.h"
+#include "ComprehensiveEditMachineDialog.h"
 #include "NetworkScanDialog.h"
 #include "MainFrame.h"
 #include "ConsolePanel.h"
@@ -31,18 +32,19 @@
 #pragma comment(lib, "ws2_32.lib")
 #endif
 
-// Control IDs
+// Control IDs for Machine Manager Panel
 enum {
     ID_MACHINE_LIST = wxID_HIGHEST + 2000,
     ID_SCAN_NETWORK,
     ID_ADD_MACHINE,
     ID_EDIT_MACHINE,
+    ID_ADVANCED_SETTINGS,  // NEW: Advanced machine settings
     ID_REMOVE_MACHINE,
     ID_CONNECT,
     ID_DISCONNECT,
-    ID_TEST_CONNECTION,
-    ID_IMPORT_CONFIG,
-    ID_EXPORT_CONFIG
+    ID_MM_TEST_CONNECTION,     // Renamed to avoid conflict
+    ID_MM_IMPORT_CONFIG,       // Renamed to avoid conflict
+    ID_MM_EXPORT_CONFIG        // Renamed to avoid conflict
 };
 
 wxBEGIN_EVENT_TABLE(MachineManagerPanel, wxPanel)
@@ -51,12 +53,13 @@ wxBEGIN_EVENT_TABLE(MachineManagerPanel, wxPanel)
     EVT_BUTTON(ID_SCAN_NETWORK, MachineManagerPanel::OnScanNetwork)
     EVT_BUTTON(ID_ADD_MACHINE, MachineManagerPanel::OnAddMachine)
     EVT_BUTTON(ID_EDIT_MACHINE, MachineManagerPanel::OnEditMachine)
+    EVT_BUTTON(ID_ADVANCED_SETTINGS, MachineManagerPanel::OnAdvancedSettings)  // NEW: Advanced settings
     EVT_BUTTON(ID_REMOVE_MACHINE, MachineManagerPanel::OnRemoveMachine)
     EVT_BUTTON(ID_CONNECT, MachineManagerPanel::OnConnect)
     EVT_BUTTON(ID_DISCONNECT, MachineManagerPanel::OnDisconnect)
-    EVT_BUTTON(ID_TEST_CONNECTION, MachineManagerPanel::OnTestConnection)
-    EVT_BUTTON(ID_IMPORT_CONFIG, MachineManagerPanel::OnImportConfig)
-    EVT_BUTTON(ID_EXPORT_CONFIG, MachineManagerPanel::OnExportConfig)
+    EVT_BUTTON(ID_MM_TEST_CONNECTION, MachineManagerPanel::OnTestConnection)
+    EVT_BUTTON(ID_MM_IMPORT_CONFIG, MachineManagerPanel::OnImportConfig)
+    EVT_BUTTON(ID_MM_EXPORT_CONFIG, MachineManagerPanel::OnExportConfig)
 wxEND_EVENT_TABLE()
 
 MachineManagerPanel::MachineManagerPanel(wxWindow* parent)
@@ -116,16 +119,19 @@ void MachineManagerPanel::CreateMachineList()
     
     m_addBtn = new wxButton(m_listPanel, ID_ADD_MACHINE, "Add");
     m_editBtn = new wxButton(m_listPanel, ID_EDIT_MACHINE, "Edit");
+    m_advancedBtn = new wxButton(m_listPanel, ID_ADVANCED_SETTINGS, "[*] Advanced");  // NEW: Advanced settings button
+    m_advancedBtn->SetToolTip("Advanced machine settings with auto-discovery - comprehensive homing, motion, spindle, and GRBL configuration");
     m_removeBtn = new wxButton(m_listPanel, ID_REMOVE_MACHINE, "Remove");
     
     btnSizer->Add(m_addBtn, 0, wxRIGHT, 3);
     btnSizer->Add(m_editBtn, 0, wxRIGHT, 3);
+    btnSizer->Add(m_advancedBtn, 0, wxRIGHT, 3);  // NEW: Add advanced button
     btnSizer->Add(m_removeBtn, 0, wxRIGHT, 5);
     
     btnSizer->AddStretchSpacer();
     
-    m_importBtn = new wxButton(m_listPanel, ID_IMPORT_CONFIG, "Import");
-    m_exportBtn = new wxButton(m_listPanel, ID_EXPORT_CONFIG, "Export");
+    m_importBtn = new wxButton(m_listPanel, ID_MM_IMPORT_CONFIG, "Import");
+    m_exportBtn = new wxButton(m_listPanel, ID_MM_EXPORT_CONFIG, "Export");
     
     btnSizer->Add(m_importBtn, 0, wxRIGHT, 3);
     btnSizer->Add(m_exportBtn, 0);
@@ -186,7 +192,7 @@ void MachineManagerPanel::CreateMachineDetails()
     
     m_connectBtn = new wxButton(m_detailsPanel, ID_CONNECT, "Connect");
     m_disconnectBtn = new wxButton(m_detailsPanel, ID_DISCONNECT, "Disconnect");
-    m_testBtn = new wxButton(m_detailsPanel, ID_TEST_CONNECTION, "Test");
+    m_testBtn = new wxButton(m_detailsPanel, ID_MM_TEST_CONNECTION, "Test");
     
     connSizer->Add(m_connectBtn, 0, wxRIGHT, 5);
     connSizer->Add(m_disconnectBtn, 0, wxRIGHT, 5);
@@ -203,6 +209,7 @@ void MachineManagerPanel::CreateMachineDetails()
     
     // Initially disable connection buttons
     m_editBtn->Enable(false);
+    m_advancedBtn->Enable(false);  // NEW: Initially disable advanced settings
     m_removeBtn->Enable(false);
     m_connectBtn->Enable(false);
     m_disconnectBtn->Enable(false);
@@ -416,6 +423,7 @@ void MachineManagerPanel::UpdateMachineDetails()
         
         // Update button states
         m_editBtn->Enable(true);
+        m_advancedBtn->Enable(true);  // NEW: Enable advanced settings for selected machine
         m_removeBtn->Enable(true);
         m_connectBtn->Enable(!selectedMachine->connected);
         m_disconnectBtn->Enable(selectedMachine->connected);
@@ -439,6 +447,7 @@ void MachineManagerPanel::UpdateMachineDetails()
         
         // Disable buttons
         m_editBtn->Enable(false);
+        m_advancedBtn->Enable(false);  // NEW: Disable advanced settings when no machine selected
         m_removeBtn->Enable(false);
         m_connectBtn->Enable(false);
         m_disconnectBtn->Enable(false);
@@ -1368,4 +1377,148 @@ bool MachineManagerPanel::TestTelnetConnection(const std::string& host, int port
     // Unix/Linux implementation would go here
     return false;
 #endif
+}
+
+// NEW: Advanced Settings Event Handler
+void MachineManagerPanel::OnAdvancedSettings(wxCommandEvent& WXUNUSED(event))
+{
+    if (m_selectedMachine.empty()) {
+    NotificationSystem::Instance().ShowWarning(
+        "No Machine Selected",
+        "Please select a machine first."
+    );
+        return;
+    }
+    
+    // Find the selected machine
+    const MachineConfig* selectedMachine = nullptr;
+    size_t selectedIndex = 0;
+    for (size_t i = 0; i < m_machines.size(); ++i) {
+        if (m_machines[i].id == m_selectedMachine) {
+            selectedMachine = &m_machines[i];
+            selectedIndex = i;
+            break;
+        }
+    }
+    
+    if (!selectedMachine) {
+    NotificationSystem::Instance().ShowError(
+        "Error",
+        "Selected machine not found."
+    );
+        return;
+    }
+    
+    // Create and show the comprehensive edit dialog
+    ComprehensiveEditMachineDialog dialog(this);
+    dialog.SetTitle(wxString::Format("[*] Advanced Settings - %s", selectedMachine->name));
+    
+    // Convert MachineConfig to EnhancedMachineConfig for the comprehensive dialog
+    EnhancedMachineConfig enhancedConfig;
+    enhancedConfig.id = selectedMachine->id;
+    enhancedConfig.name = selectedMachine->name;
+    enhancedConfig.description = selectedMachine->description;
+    enhancedConfig.host = selectedMachine->host;
+    enhancedConfig.port = selectedMachine->port;
+    enhancedConfig.machineType = selectedMachine->machineType;
+    enhancedConfig.autoConnect = selectedMachine->autoConnect;
+    
+    // Initialize capabilities if they exist
+    enhancedConfig.capabilities.workspaceX = selectedMachine->capabilities.workspaceX;
+    enhancedConfig.capabilities.workspaceY = selectedMachine->capabilities.workspaceY;
+    enhancedConfig.capabilities.workspaceZ = selectedMachine->capabilities.workspaceZ;
+    enhancedConfig.capabilities.maxFeedRate = selectedMachine->capabilities.maxFeedRate;
+    enhancedConfig.capabilities.maxSpindleRPM = selectedMachine->capabilities.maxSpindleRPM;
+    enhancedConfig.capabilities.numAxes = selectedMachine->capabilities.numAxes;
+    enhancedConfig.capabilities.hasHoming = selectedMachine->capabilities.hasHoming;
+    enhancedConfig.capabilities.hasProbe = selectedMachine->capabilities.hasProbe;
+    enhancedConfig.capabilities.firmwareVersion = selectedMachine->capabilities.firmwareVersion;
+    enhancedConfig.capabilities.buildInfo = selectedMachine->capabilities.buildInfo;
+    enhancedConfig.capabilities.capabilitiesValid = selectedMachine->capabilities.capabilitiesValid;
+    
+    // Set the configuration in the dialog
+    dialog.SetMachineConfig(enhancedConfig);
+    
+    // Show informational message about the comprehensive dialog
+    NotificationSystem::Instance().ShowInfo(
+        "Advanced Machine Settings",
+        "Welcome to Advanced Machine Settings!\n\n"
+        "This comprehensive dialog provides:\n\n"
+        "[+] One-Click Auto-Discovery - Automatically detect all machine settings\n"
+        "[+] 11-Tab Interface - Complete coverage of all machine aspects\n"
+        "[+] Kinematics Detection - Auto-configure for CoreXY, Cartesian, etc.\n"
+        "[+] GRBL Parameter Grid - View and edit all 70+ GRBL settings\n"
+        "[+] Real-time Testing - Test homing, spindle, jogging in real-time\n"
+        "[+] Smart Configuration - Auto-optimize settings based on machine type\n\n"
+        "Click the big 'Auto-Discover Machine' button to get started!"
+    );
+    
+    // Show the comprehensive dialog
+    if (dialog.ShowModal() == wxID_OK) {
+        // Get the updated configuration
+        EnhancedMachineConfig updatedConfig = dialog.GetMachineConfig();
+        
+        // Update the machine configuration in our local list
+        m_machines[selectedIndex].name = updatedConfig.name;
+        m_machines[selectedIndex].description = updatedConfig.description;
+        m_machines[selectedIndex].host = updatedConfig.host;
+        m_machines[selectedIndex].port = updatedConfig.port;
+        m_machines[selectedIndex].machineType = updatedConfig.machineType;
+        m_machines[selectedIndex].autoConnect = updatedConfig.autoConnect;
+        
+        // Update capabilities if they were discovered/modified
+        m_machines[selectedIndex].capabilities.workspaceX = updatedConfig.capabilities.workspaceX;
+        m_machines[selectedIndex].capabilities.workspaceY = updatedConfig.capabilities.workspaceY;
+        m_machines[selectedIndex].capabilities.workspaceZ = updatedConfig.capabilities.workspaceZ;
+        m_machines[selectedIndex].capabilities.maxFeedRate = updatedConfig.capabilities.maxFeedRate;
+        m_machines[selectedIndex].capabilities.maxSpindleRPM = updatedConfig.capabilities.maxSpindleRPM;
+        m_machines[selectedIndex].capabilities.numAxes = updatedConfig.capabilities.numAxes;
+        m_machines[selectedIndex].capabilities.hasHoming = updatedConfig.capabilities.hasHoming;
+        m_machines[selectedIndex].capabilities.hasProbe = updatedConfig.capabilities.hasProbe;
+        m_machines[selectedIndex].capabilities.firmwareVersion = updatedConfig.capabilities.firmwareVersion;
+        m_machines[selectedIndex].capabilities.buildInfo = updatedConfig.capabilities.buildInfo;
+        m_machines[selectedIndex].capabilities.capabilitiesValid = updatedConfig.capabilities.capabilitiesValid;
+        
+        // Save the updated configuration
+        SaveMachineConfigs();
+        
+        // Refresh the UI to show any changes
+        PopulateMachineList();
+        UpdateMachineDetails();
+        
+        // Show success message
+        wxString successMsg = "Advanced settings have been applied successfully!\n\n";
+        if (updatedConfig.capabilities.capabilitiesValid) {
+            successMsg += wxString::Format(
+                "Machine capabilities discovered and configured:\n\n"
+                "[K] Kinematics: %s\n"
+                "[W] Workspace: %.1f x %.1f x %.1f mm\n"
+                "[F] Max Feed Rate: %.0f mm/min\n"
+                "[S] Max Spindle RPM: %.0f\n"
+                "[H] Homing: %s\n"
+                "[P] Probe: %s\n\n"
+                "All motion settings, homing sequences, and safety parameters\n"
+                "have been optimized for your machine configuration.",
+                updatedConfig.capabilities.kinematics,
+                updatedConfig.capabilities.workspaceX,
+                updatedConfig.capabilities.workspaceY,
+                updatedConfig.capabilities.workspaceZ,
+                updatedConfig.capabilities.maxFeedRate,
+                updatedConfig.capabilities.maxSpindleRPM,
+                updatedConfig.capabilities.hasHoming ? "Enabled" : "Disabled",
+                updatedConfig.capabilities.hasProbe ? "Available" : "Not Available"
+            );
+        } else {
+            successMsg += "Basic machine settings have been updated.\n\n"
+                         "For best results, connect to your machine and use the\n"
+                         "Auto-Discovery feature to detect all capabilities.";
+        }
+        
+        NotificationSystem::Instance().ShowSuccess(
+            "Advanced Settings Applied",
+            successMsg
+        );
+        
+        LOG_INFO("Advanced machine settings applied for: " + updatedConfig.name);
+    }
 }

@@ -80,7 +80,7 @@ void NotificationToast::CreateControls()
     m_messageText->Wrap(250); // Wrap long messages
     
     // Create close button
-    m_closeButton = new wxButton(m_panel, wxID_CLOSE, "×", wxDefaultPosition, wxSize(20, 20));
+    m_closeButton = new wxButton(m_panel, wxID_CLOSE, "X", wxDefaultPosition, wxSize(20, 20));
     m_closeButton->SetFont(wxFont(12, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
     
     // Layout

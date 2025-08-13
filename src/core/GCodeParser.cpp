@@ -29,7 +29,7 @@ void GCodeState::reset() {
     units = Units::MILLIMETERS;
     coordinateSystem = CoordinateSystem::G54;
     plane = Plane::XY;
-    positionMode = MotionMode::ABSOLUTE;
+    positionMode = MotionMode::ABSOLUTE_MODE;
     feedRateMode = FeedRateMode::UNITS_PER_MINUTE;
     spindleState = SpindleState::OFF;
     coolantState = CoolantState();
@@ -390,10 +390,15 @@ std::string GCodeParser::cleanLine(const std::string& line) {
 
 // Command processing
 void GCodeParser::processCommand(const GCodeCommand& command) {
+    // Store the start position before updating state
+    Position startPosition = m_state.currentPosition;
+    
+    // Update modal state first (this updates current position for next command)
     updateModalState(command);
     
+    // Generate toolpath segment using start position and updated end position
     if (m_generateToolpath) {
-        generateToolpathSegment(command);
+        generateToolpathSegmentFromPositions(command, startPosition, m_state.currentPosition);
     }
     
     if (m_calculateStatistics) {
@@ -416,11 +421,11 @@ void GCodeParser::updateModalState(const GCodeCommand& command) {
             break;
             
         case CommandType::ABSOLUTE_MODE:
-            m_state.positionMode = MotionMode::ABSOLUTE;
+            m_state.positionMode = MotionMode::ABSOLUTE_MODE;
             break;
             
         case CommandType::INCREMENTAL_MODE:
-            m_state.positionMode = MotionMode::INCREMENTAL;
+            m_state.positionMode = MotionMode::INCREMENTAL_MODE;
             break;
             
         case CommandType::MILLIMETERS:
@@ -529,7 +534,7 @@ void GCodeParser::updateModalState(const GCodeCommand& command) {
     if (isMotionCommand(command.type) || command.position.hasX || command.position.hasY || command.position.hasZ) {
         Position newPos = m_state.currentPosition;
         
-        if (m_state.positionMode == MotionMode::ABSOLUTE) {
+        if (m_state.positionMode == MotionMode::ABSOLUTE_MODE) {
             if (command.position.hasX) newPos.x = command.position.x;
             if (command.position.hasY) newPos.y = command.position.y;
             if (command.position.hasZ) newPos.z = command.position.z;
@@ -564,7 +569,7 @@ void GCodeParser::generateToolpathSegment(const GCodeCommand& command) {
     segment.toolNumber = m_state.currentTool;
     
     Position targetPos = m_state.currentPosition;
-    if (m_state.positionMode == MotionMode::ABSOLUTE) {
+    if (m_state.positionMode == MotionMode::ABSOLUTE_MODE) {
         if (command.position.hasX) targetPos.x = command.position.x;
         if (command.position.hasY) targetPos.y = command.position.y;
         if (command.position.hasZ) targetPos.z = command.position.z;
@@ -629,6 +634,89 @@ void GCodeParser::generateToolpathSegment(const GCodeCommand& command) {
     }
 }
 
+void GCodeParser::generateToolpathSegmentFromPositions(const GCodeCommand& command, const Position& startPos, const Position& endPos) {
+    if (!isMotionCommand(command.type)) {
+        return;
+    }
+    
+    ToolpathSegment segment;
+    segment.start = startPos;
+    segment.end = endPos;
+    segment.feedRate = m_state.feedRate;
+    segment.spindleSpeed = m_state.spindleSpeed;
+    segment.spindleOn = (m_state.spindleState != SpindleState::OFF);
+    segment.coolantOn = (m_state.coolantState.mist || m_state.coolantState.flood);
+    segment.toolNumber = m_state.currentTool;
+    
+    switch (command.type) {
+        case CommandType::RAPID_MOVE:
+            segment.type = ToolpathSegment::RAPID;
+            break;
+            
+        case CommandType::LINEAR_MOVE:
+            segment.type = ToolpathSegment::LINEAR;
+            break;
+            
+        case CommandType::CW_ARC:
+            segment.type = ToolpathSegment::ARC_CW;
+            calculateArcCenterFromPositions(command, startPos, endPos, segment.center, segment.radius);
+            break;
+            
+        case CommandType::CCW_ARC:
+            segment.type = ToolpathSegment::ARC_CCW;
+            calculateArcCenterFromPositions(command, startPos, endPos, segment.center, segment.radius);
+            break;
+            
+        default:
+            return; // Not a motion command
+    }
+    
+    // Calculate segment length
+    if (segment.type == ToolpathSegment::RAPID || segment.type == ToolpathSegment::LINEAR) {
+        double dx = segment.end.x - segment.start.x;
+        double dy = segment.end.y - segment.start.y;
+        double dz = segment.end.z - segment.start.z;
+        segment.length = std::sqrt(dx*dx + dy*dy + dz*dz);
+    } else if (segment.type == ToolpathSegment::ARC_CW || segment.type == ToolpathSegment::ARC_CCW) {
+        // Calculate arc length with proper direction handling
+        double startAngle = std::atan2(segment.start.y - segment.center.y, segment.start.x - segment.center.x);
+        double endAngle = std::atan2(segment.end.y - segment.center.y, segment.end.x - segment.center.x);
+        
+        double angleSpan;
+        if (segment.type == ToolpathSegment::ARC_CW) {
+            // Clockwise: from start to end in negative direction
+            angleSpan = startAngle - endAngle;
+            if (angleSpan <= 0) angleSpan += 2*PI;
+        } else {
+            // Counter-clockwise: from start to end in positive direction
+            angleSpan = endAngle - startAngle;
+            if (angleSpan <= 0) angleSpan += 2*PI;
+        }
+        
+        // Handle special case where start and end are the same (full circle)
+        if (std::abs(segment.start.x - segment.end.x) < EPSILON && 
+            std::abs(segment.start.y - segment.end.y) < EPSILON) {
+            angleSpan = 2*PI; // Full circle
+        }
+        
+        segment.length = segment.radius * angleSpan;
+    }
+    
+    // Calculate estimated time
+    if (segment.feedRate > 0 && segment.type != ToolpathSegment::RAPID) {
+        segment.estimatedTime = (segment.length / segment.feedRate) * 60.0; // Convert to seconds
+    } else {
+        // Assume rapid rate of 10000 mm/min for time estimation
+        segment.estimatedTime = (segment.length / 10000.0) * 60.0;
+    }
+    
+    m_toolpath.push_back(segment);
+    
+    if (m_segmentCallback) {
+        m_segmentCallback(segment);
+    }
+}
+
 void GCodeParser::calculateArcCenter(const GCodeCommand& command, Position& center, double& radius) {
     // Calculate arc center and radius
     if (command.arc.hasR) {
@@ -648,6 +736,69 @@ void GCodeParser::calculateArcCenter(const GCodeCommand& command, Position& cent
         double dx = m_state.currentPosition.x - center.x;
         double dy = m_state.currentPosition.y - center.y;
         radius = std::sqrt(dx*dx + dy*dy);
+    }
+}
+
+void GCodeParser::calculateArcCenterFromPositions(const GCodeCommand& command, const Position& startPos, const Position& endPos, Position& center, double& radius) {
+    // Calculate arc center and radius using explicit start/end positions
+    if (command.arc.hasR) {
+        // Radius format (R parameter) - more complex calculation needed
+        radius = std::abs(command.arc.r);
+        
+        // Calculate center for radius format
+        double dx = endPos.x - startPos.x;
+        double dy = endPos.y - startPos.y;
+        double chord_length = std::sqrt(dx*dx + dy*dy);
+        
+        if (chord_length < EPSILON) {
+            // Full circle case - need more context to determine center
+            center.x = startPos.x;
+            center.y = startPos.y + radius;
+            center.z = startPos.z;
+        } else if (chord_length > 2 * radius) {
+            // Invalid arc - chord longer than diameter
+            center.x = (startPos.x + endPos.x) / 2.0;
+            center.y = (startPos.y + endPos.y) / 2.0;
+            center.z = startPos.z;
+            radius = chord_length / 2.0;
+        } else {
+            // Calculate center perpendicular to chord
+            double mid_x = (startPos.x + endPos.x) / 2.0;
+            double mid_y = (startPos.y + endPos.y) / 2.0;
+            
+            double h = std::sqrt(radius*radius - (chord_length/2.0)*(chord_length/2.0));
+            
+            // Perpendicular direction to chord
+            double perp_x = -dy / chord_length;
+            double perp_y = dx / chord_length;
+            
+            // For R > 0, use smaller arc; for R < 0, use larger arc
+            if (command.arc.r < 0) h = -h;
+            
+            center.x = mid_x + h * perp_x;
+            center.y = mid_y + h * perp_y;
+            center.z = startPos.z;
+        }
+    } else if (command.arc.hasI || command.arc.hasJ) {
+        // Center format (I, J parameters) - straightforward
+        center.x = startPos.x + command.arc.i;
+        center.y = startPos.y + command.arc.j;
+        center.z = startPos.z + (command.arc.hasK ? command.arc.k : 0.0);
+        
+        double dx = startPos.x - center.x;
+        double dy = startPos.y - center.y;
+        radius = std::sqrt(dx*dx + dy*dy);
+        
+        // Validate that end point is approximately at same distance from center
+        double end_dx = endPos.x - center.x;
+        double end_dy = endPos.y - center.y;
+        double end_radius = std::sqrt(end_dx*end_dx + end_dy*end_dy);
+        
+        if (std::abs(radius - end_radius) > 0.01) {
+            // Arc geometry error - endpoints not equidistant from center
+            // Use average radius
+            radius = (radius + end_radius) / 2.0;
+        }
     }
 }
 
@@ -740,7 +891,7 @@ void GCodeParser::reportError(const std::string& message, int lineNumber, ParseE
         m_errorCallback(error);
     }
     
-    LOG_ERROR(wxString::Format("G-code parse error at line %d: %s", lineNumber, message).ToStdString());
+    LOG_ERROR("G-code parse error at line " + std::to_string(lineNumber) + ": " + message);
 }
 
 void GCodeParser::resetState() {

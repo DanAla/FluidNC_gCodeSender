@@ -14,8 +14,20 @@
 #include <string>
 
 struct GCodeLine {
+    enum Type {
+        LINE,
+        ARC
+    };
+    
+    Type type = LINE;
     float startX, startY, startZ;
     float endX, endY, endZ;
+    
+    // Arc-specific data
+    float centerX = 0.0f, centerY = 0.0f;
+    float radius = 0.0f;
+    bool isClockwise = true;
+    
     bool isRapid; // G0 rapid move vs G1 feed move
     wxColour color;
 };
@@ -53,6 +65,9 @@ public:
     
     // Machine workspace settings
     void SetWorkspaceSize(float width, float height, float depth);
+    void SetWorkspaceFromMachine(bool hasConnection, float minX = 0, float maxX = 0, float minY = 0, float maxY = 0, float minZ = 0, float maxZ = 0);
+    void HideWorkspaceBounds() { m_showWorkspaceBounds = false; Refresh(); }
+    void ShowWorkspaceBounds() { m_showWorkspaceBounds = true; Refresh(); }
 
 private:
     // Event handlers

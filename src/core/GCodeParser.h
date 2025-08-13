@@ -81,8 +81,8 @@ enum class Plane {
 
 // Motion mode
 enum class MotionMode {
-    ABSOLUTE,     // G90
-    INCREMENTAL   // G91
+    ABSOLUTE_MODE,     // G90
+    INCREMENTAL_MODE   // G91
 };
 
 // Feed rate mode
@@ -154,7 +154,7 @@ struct GCodeState {
     Units units = Units::MILLIMETERS;
     CoordinateSystem coordinateSystem = CoordinateSystem::G54;
     Plane plane = Plane::XY;
-    MotionMode positionMode = MotionMode::ABSOLUTE;
+    MotionMode positionMode = MotionMode::ABSOLUTE_MODE;
     FeedRateMode feedRateMode = FeedRateMode::UNITS_PER_MINUTE;
     
     // Machine states
@@ -270,7 +270,7 @@ struct ParseError {
     int lineNumber;
     std::string line;
     std::string message;
-    enum Severity { WARNING, ERROR, FATAL } severity;
+    enum Severity { WARNING, PARSE_ERROR, FATAL } severity;
 };
 
 // Parser callbacks for real-time updates
@@ -330,7 +330,9 @@ private:
     void processCommand(const GCodeCommand& command);
     void updateModalState(const GCodeCommand& command);
     void generateToolpathSegment(const GCodeCommand& command);
+    void generateToolpathSegmentFromPositions(const GCodeCommand& command, const Position& startPos, const Position& endPos);
     void calculateArcCenter(const GCodeCommand& command, Position& center, double& radius);
+    void calculateArcCenterFromPositions(const GCodeCommand& command, const Position& startPos, const Position& endPos, Position& center, double& radius);
     void expandCannedCycle(const GCodeCommand& command);
     
     // Statistics and validation
@@ -338,7 +340,7 @@ private:
     void updateBounds(const Position& pos);
     bool validateCommand(const GCodeCommand& command, std::string& error);
     void reportError(const std::string& message, int lineNumber, 
-                     ParseError::Severity severity = ParseError::ERROR);
+                     ParseError::Severity severity = ParseError::PARSE_ERROR);
     
     // State variables
     GCodeState m_state;

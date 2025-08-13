@@ -35,7 +35,7 @@ MachineVisualizationPanel::MachineVisualizationPanel(wxWindow* parent)
     , m_showOrigin(true)
     , m_showToolPath(true)
     , m_showCurrentPosition(true)
-    , m_showWorkspaceBounds(true)
+    , m_showWorkspaceBounds(false)  // Hidden until machine is connected
     , m_workspaceWidth(300.0f)
     , m_workspaceHeight(200.0f)
     , m_workspaceDepth(100.0f)
@@ -138,85 +138,7 @@ void MachineVisualizationPanel::UpdateBounds(float x, float y)
     }
 }
 
-void MachineVisualizationPanel::AddLineSegment(float x, float y, bool isRapid)
-{
-    GCodeLine gcLine;
-    gcLine.startX = m_currentX;
-    gcLine.startY = m_currentY;
-    gcLine.startZ = m_currentZ;
-    gcLine.endX = x;
-    gcLine.endY = y;
-    gcLine.endZ = m_currentZ; // Assuming 2D for now
-    gcLine.isRapid = isRapid;
-    gcLine.color = isRapid ? wxColour(255, 0, 0) : wxColour(0, 100, 255);
-    
-    m_gcodeLines.push_back(gcLine);
-    
-    UpdateBounds(m_currentX, m_currentY);
-    UpdateBounds(x, y);
-    
-    m_currentX = x;
-    m_currentY = y;
-}
-
-void MachineVisualizationPanel::AddArcSegments(float x, float y, float i, float j, bool isClockwise)
-{
-    float startX = m_currentX;
-    float startY = m_currentY;
-    float endX = m_isIncrementalMode ? startX + x : x;
-    float endY = m_isIncrementalMode ? startY + y : y;
-
-    float centerX = startX + i;
-    float centerY = startY + j;
-
-    float radius = sqrt(i * i + j * j);
-    float startAngle = atan2(startY - centerY, startX - centerX);
-    float endAngle = atan2(endY - centerY, endX - centerX);
-
-    if (isClockwise) { // G2
-        if (endAngle >= startAngle) {
-            endAngle -= 2 * M_PI;
-        }
-    } else { // G3
-        if (endAngle <= startAngle) {
-            endAngle += 2 * M_PI;
-        }
-    }
-
-    float totalAngle = endAngle - startAngle;
-    int numSegments = std::max(1, static_cast<int>(fabs(totalAngle) * radius / 0.5)); // Segments for ~0.5mm chord length
-
-    float angleStep = totalAngle / numSegments;
-
-    float lastX = startX;
-    float lastY = startY;
-
-    for (int k = 1; k <= numSegments; ++k) {
-        float angle = startAngle + k * angleStep;
-        float nextX = centerX + radius * cos(angle);
-        float nextY = centerY + radius * sin(angle);
-
-        GCodeLine gcLine;
-        gcLine.startX = lastX;
-        gcLine.startY = lastY;
-        gcLine.startZ = m_currentZ;
-        gcLine.endX = nextX;
-        gcLine.endY = nextY;
-        gcLine.endZ = m_currentZ;
-        gcLine.isRapid = false;
-        gcLine.color = wxColour(0, 100, 255);
-        m_gcodeLines.push_back(gcLine);
-
-        UpdateBounds(lastX, lastY);
-        UpdateBounds(nextX, nextY);
-
-        lastX = nextX;
-        lastY = nextY;
-    }
-
-    m_currentX = endX;
-    m_currentY = endY;
-}
+// Legacy parsing methods removed - now using comprehensive GCodeParser
 
 
 void MachineVisualizationPanel::ParseGCode(const wxString& gcode)
@@ -278,19 +200,35 @@ void MachineVisualizationPanel::ParseGCode(const wxString& gcode)
         // Set color and style based on segment type
         switch (segment.type) {
             case ToolpathSegment::RAPID:
+                gcLine.type = GCodeLine::LINE;
                 gcLine.isRapid = true;
                 gcLine.color = wxColour(255, 0, 0); // Red for rapid moves
                 break;
             case ToolpathSegment::LINEAR:
+                gcLine.type = GCodeLine::LINE;
                 gcLine.isRapid = false;
                 gcLine.color = wxColour(0, 100, 255); // Blue for cutting moves
                 break;
             case ToolpathSegment::ARC_CW:
+                gcLine.type = GCodeLine::ARC;
+                gcLine.centerX = static_cast<float>(segment.center.x);
+                gcLine.centerY = static_cast<float>(segment.center.y);
+                gcLine.radius = static_cast<float>(segment.radius);
+                gcLine.isClockwise = true;
+                gcLine.isRapid = false;
+                gcLine.color = wxColour(0, 150, 0); // Green for arcs
+                break;
             case ToolpathSegment::ARC_CCW:
+                gcLine.type = GCodeLine::ARC;
+                gcLine.centerX = static_cast<float>(segment.center.x);
+                gcLine.centerY = static_cast<float>(segment.center.y);
+                gcLine.radius = static_cast<float>(segment.radius);
+                gcLine.isClockwise = false;
                 gcLine.isRapid = false;
                 gcLine.color = wxColour(0, 150, 0); // Green for arcs
                 break;
             case ToolpathSegment::DRILL_CYCLE:
+                gcLine.type = GCodeLine::LINE;
                 gcLine.isRapid = false;
                 gcLine.color = wxColour(255, 165, 0); // Orange for drilling
                 break;
@@ -298,9 +236,15 @@ void MachineVisualizationPanel::ParseGCode(const wxString& gcode)
         
         m_gcodeLines.push_back(gcLine);
         
-        // Update bounds
+        // Update bounds - for arcs, include the entire arc extent
         UpdateBounds(gcLine.startX, gcLine.startY);
         UpdateBounds(gcLine.endX, gcLine.endY);
+        
+        if (gcLine.type == GCodeLine::ARC) {
+            // Update bounds to include full arc extent
+            UpdateBounds(gcLine.centerX - gcLine.radius, gcLine.centerY - gcLine.radius);
+            UpdateBounds(gcLine.centerX + gcLine.radius, gcLine.centerY + gcLine.radius);
+        }
     }
     
     // Update statistics
@@ -448,7 +392,51 @@ void MachineVisualizationPanel::DrawGCodePath(wxGraphicsContext* gc)
     
     for (const auto& line : m_gcodeLines) {
         gc->SetPen(wxPen(line.color, line.isRapid ? 1 : 2));
-        gc->StrokeLine(line.startX, line.startY, line.endX, line.endY);
+        
+        if (line.type == GCodeLine::LINE) {
+            // Draw straight line
+            gc->StrokeLine(line.startX, line.startY, line.endX, line.endY);
+        } else if (line.type == GCodeLine::ARC) {
+            // Draw arc
+            if (line.radius > 0) {
+                // Calculate start and end angles
+                double startAngle = std::atan2(line.startY - line.centerY, line.startX - line.centerX);
+                double endAngle = std::atan2(line.endY - line.centerY, line.endX - line.centerX);
+                
+                // Convert from radians to degrees for wxWidgets
+                double startDegrees = startAngle * 180.0 / M_PI;
+                double endDegrees = endAngle * 180.0 / M_PI;
+                
+                // Calculate sweep angle based on direction
+                double sweepAngle;
+                if (line.isClockwise) {
+                    // Clockwise direction
+                    sweepAngle = startDegrees - endDegrees;
+                    if (sweepAngle <= 0) sweepAngle += 360;
+                    sweepAngle = -sweepAngle; // Negative for clockwise
+                } else {
+                    // Counter-clockwise direction
+                    sweepAngle = endDegrees - startDegrees;
+                    if (sweepAngle <= 0) sweepAngle += 360;
+                }
+                
+                // Handle full circles
+                if (std::abs(line.startX - line.endX) < 0.001f && std::abs(line.startY - line.endY) < 0.001f) {
+                    sweepAngle = line.isClockwise ? -360.0 : 360.0;
+                }
+                
+                // Create arc path
+                wxGraphicsPath path = gc->CreatePath();
+                path.AddArc(line.centerX, line.centerY, line.radius, 
+                           startAngle, startAngle + sweepAngle * M_PI / 180.0, 
+                           !line.isClockwise);
+                
+                gc->StrokePath(path);
+            } else {
+                // Fallback to line if radius is invalid
+                gc->StrokeLine(line.startX, line.startY, line.endX, line.endY);
+            }
+        }
     }
 }
 
@@ -512,34 +500,13 @@ void MachineVisualizationPanel::DrawStatusInfo(wxGraphicsContext* gc)
 
 void MachineVisualizationPanel::ZoomToFit()
 {
-    if (!m_boundsValid || m_gcodeLines.empty()) {
-        m_zoomFactor = 1.0f;
-        m_viewOffsetX = m_viewOffsetY = 0.0f;
-        Refresh();
-        return;
-    }
+    // Force zoom to 100% and view to -400,-300 as requested
+    m_zoomFactor = 1.0f;
+    m_viewOffsetX = -400.0f;
+    m_viewOffsetY = -300.0f;
     
-    wxSize clientSize = GetClientSize();
-    if (clientSize.x <= 0 || clientSize.y <= 0) return;
-    
-    float width = m_maxX - m_minX;
-    float height = m_maxY - m_minY;
-    
-    if (width <= 0) width = 1.0f;
-    if (height <= 0) height = 1.0f;
-    
-    // Add 10% margin
-    width *= 1.1f;
-    height *= 1.1f;
-    
-    float zoomX = clientSize.x / width;
-    float zoomY = clientSize.y / height;
-    
-    m_zoomFactor = std::min(zoomX, zoomY);
-    
-    // Center on bounds
-    m_viewOffsetX = -((m_minX + m_maxX) / 2.0f) * m_zoomFactor;
-    m_viewOffsetY = ((m_minY + m_maxY) / 2.0f) * m_zoomFactor;
+    LOG_INFO(wxString::Format("ZoomToFit: FORCED zoom to 100%%, offset to -400,-300. Bounds X:%.2f-%.2f Y:%.2f-%.2f", 
+                             m_minX, m_maxX, m_minY, m_maxY).ToStdString());
     
     Refresh();
 }
@@ -593,6 +560,26 @@ void MachineVisualizationPanel::SetWorkspaceSize(float width, float height, floa
     m_workspaceWidth = width;
     m_workspaceHeight = height;
     m_workspaceDepth = depth;
+    Refresh();
+}
+
+void MachineVisualizationPanel::SetWorkspaceFromMachine(bool hasConnection, float minX, float maxX, float minY, float maxY, float minZ, float maxZ)
+{
+    if (hasConnection && (maxX > minX) && (maxY > minY)) {
+        // Use machine-reported workspace dimensions
+        m_workspaceWidth = maxX - minX;
+        m_workspaceHeight = maxY - minY;
+        m_workspaceDepth = maxZ - minZ;
+        m_showWorkspaceBounds = true;
+        
+        LOG_INFO(wxString::Format("Updated workspace from machine: X[%.1f to %.1f] Y[%.1f to %.1f] Z[%.1f to %.1f]", 
+                                 minX, maxX, minY, maxY, minZ, maxZ).ToStdString());
+    } else {
+        // Hide workspace bounds when no machine is connected or invalid dimensions
+        m_showWorkspaceBounds = false;
+        LOG_INFO("Workspace bounds hidden (no machine connection or invalid dimensions)");
+    }
+    
     Refresh();
 }
 
