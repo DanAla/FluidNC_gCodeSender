@@ -938,6 +938,11 @@ void MachineManagerPanel::OnConnect(wxCommandEvent& WXUNUSED(event))
         
         // Log connection success to terminal console
         MainFrame* mainFrame = dynamic_cast<MainFrame*>(wxGetTopLevelParent(this));
+        
+        // Notify MainFrame about connection for status bar update using universal handler
+        if (mainFrame) {
+            mainFrame->HandleConnectionStatusChange(selectedMachine->id, true);
+        }
         if (mainFrame) {
             ConsolePanel* console = mainFrame->GetConsolePanel();
             if (console) {
@@ -1034,6 +1039,11 @@ void MachineManagerPanel::OnDisconnect(wxCommandEvent& WXUNUSED(event))
         // Refresh UI
         RefreshMachineList();
         UpdateMachineDetails();
+        
+        // Notify MainFrame about disconnection for status bar update using universal handler
+        if (mainFrame) {
+            mainFrame->HandleConnectionStatusChange(selectedMachine->id, false);
+        }
         
         // Show disconnection message
         NotificationSystem::Instance().ShowSuccess(

@@ -10,8 +10,10 @@
 #include <wx/stc/stc.h>
 #include <wx/splitter.h>
 #include <wx/listctrl.h>
+#include <wx/dnd.h>
 #include <vector>
 #include <string>
+#include <functional>
 
 /**
  * G-code Editor Panel - advanced text editor for G-code files
@@ -43,6 +45,12 @@ public:
     // Job analysis
     void AnalyzeJob();
     void UpdateJobStatistics();
+    
+    // Text change callback
+    void SetTextChangeCallback(std::function<void(const std::string&)> callback);
+    
+    // File loading (public for drag and drop)
+    void LoadGCodeFile(const wxString& filename);
 
 private:
     // Event handlers
@@ -124,6 +132,9 @@ private:
     
     // Job data
     JobStatistics m_jobStats;
+    
+    // Text change callback
+    std::function<void(const std::string&)> m_textChangeCallback;
     
     wxDECLARE_EVENT_TABLE();
 };

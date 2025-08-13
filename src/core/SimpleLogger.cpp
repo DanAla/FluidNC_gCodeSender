@@ -66,6 +66,21 @@ void SimpleLogger::logInfo(const std::string& message) {
     }
 }
 
+void SimpleLogger::logWarning(const std::string& message) {
+    ensureLogFile();
+    
+    std::string logEntry = "[" + getTimestamp() + "] [WARNING] " + message;
+    
+    // Write to console
+    std::cout << logEntry << std::endl;
+    
+    // Write to file
+    if (m_logFile.is_open()) {
+        m_logFile << logEntry << std::endl;
+        m_logFile.flush();
+    }
+}
+
 void SimpleLogger::logError(const std::string& message) {
     ensureLogFile();
     

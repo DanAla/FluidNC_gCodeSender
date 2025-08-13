@@ -66,7 +66,9 @@ private:
     
     // G-code parsing
     void ParseGCode(const wxString& gcode);
-    void ParseGCodeLine(const wxString& line, float& currentX, float& currentY, float& currentZ, bool& isRapid);
+    void AddLineSegment(float x, float y, bool isRapid);
+    void AddArcSegments(float x, float y, float i, float j, bool isClockwise);
+    void UpdateBounds(float x, float y);
     
     // Drawing methods
     void DrawBackground(wxGraphicsContext* gc);

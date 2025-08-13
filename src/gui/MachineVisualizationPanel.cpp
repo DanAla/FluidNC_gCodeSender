@@ -5,6 +5,7 @@
 
 #include "MachineVisualizationPanel.h"
 #include "core/SimpleLogger.h"
+#include "core/GCodeParser.h"
 #include <wx/filename.h>
 #include <wx/textfile.h>
 #include <wx/msgdlg.h>
@@ -12,6 +13,7 @@
 #include <cmath>
 #include <algorithm>
 #include <sstream>
+#include <map>
 
 // Event table
 wxBEGIN_EVENT_TABLE(MachineVisualizationPanel, wxPanel)
@@ -87,8 +89,10 @@ void MachineVisualizationPanel::LoadGCodeFile(const wxString& filename)
 
 void MachineVisualizationPanel::SetGCodeContent(const wxString& gcode)
 {
+    LOG_INFO(wxString::Format("SetGCodeContent called with gcode of length %zu", gcode.length()).ToStdString());
     ClearGCode();
     ParseGCode(gcode);
+    LOG_INFO(wxString::Format("Parsing complete. %zu path segments generated.", m_gcodeLines.size()).ToStdString());
     ZoomToFit();
     Refresh();
 }
@@ -119,110 +123,219 @@ void MachineVisualizationPanel::ClearToolPosition()
     Refresh();
 }
 
-void MachineVisualizationPanel::ParseGCode(const wxString& gcode)
+
+void MachineVisualizationPanel::UpdateBounds(float x, float y)
 {
-    wxStringTokenizer tokenizer(gcode, "\n\r");
-    
-    float currentX = 0.0f, currentY = 0.0f, currentZ = 0.0f;
-    bool isRapid = false;
-    
-    m_minX = m_maxX = 0.0f;
-    m_minY = m_maxY = 0.0f;
-    m_minZ = m_maxZ = 0.0f;
-    m_boundsValid = false;
-    
-    int lineCount = 0;
-    
-    while (tokenizer.HasMoreTokens()) {
-        wxString line = tokenizer.GetNextToken().Trim().Trim(false);
-        lineCount++;
-        
-        if (line.IsEmpty() || line.StartsWith(";") || line.StartsWith("(")) {
-            continue; // Skip empty lines and comments
-        }
-        
-        float newX = currentX, newY = currentY, newZ = currentZ;
-        bool wasRapid = isRapid;
-        
-        ParseGCodeLine(line, newX, newY, newZ, isRapid);
-        
-        // If position changed, add a line segment
-        if (newX != currentX || newY != currentY || newZ != currentZ) {
-            GCodeLine gcLine;
-            gcLine.startX = currentX;
-            gcLine.startY = currentY;
-            gcLine.startZ = currentZ;
-            gcLine.endX = newX;
-            gcLine.endY = newY;
-            gcLine.endZ = newZ;
-            gcLine.isRapid = wasRapid;
-            gcLine.color = wasRapid ? wxColour(255, 0, 0) : wxColour(0, 100, 255); // Red for rapid, blue for feed
-            
-            m_gcodeLines.push_back(gcLine);
-            
-            // Update bounds
-            if (!m_boundsValid) {
-                m_minX = m_maxX = newX;
-                m_minY = m_maxY = newY;
-                m_minZ = m_maxZ = newZ;
-                m_boundsValid = true;
-            } else {
-                m_minX = std::min(m_minX, std::min(currentX, newX));
-                m_maxX = std::max(m_maxX, std::max(currentX, newX));
-                m_minY = std::min(m_minY, std::min(currentY, newY));
-                m_maxY = std::max(m_maxY, std::max(currentY, newY));
-                m_minZ = std::min(m_minZ, std::min(currentZ, newZ));
-                m_maxZ = std::max(m_maxZ, std::max(currentZ, newZ));
-            }
-            
-            currentX = newX;
-            currentY = newY;
-            currentZ = newZ;
-        }
+    if (!m_boundsValid) {
+        m_minX = m_maxX = x;
+        m_minY = m_maxY = y;
+        m_boundsValid = true;
+    } else {
+        m_minX = std::min(m_minX, x);
+        m_maxX = std::max(m_maxX, x);
+        m_minY = std::min(m_minY, y);
+        m_maxY = std::max(m_maxY, y);
     }
-    
-    m_totalLines = lineCount;
-    
-    LOG_INFO(wxString::Format("Parsed %d G-code lines, generated %zu path segments", 
-                             lineCount, m_gcodeLines.size()).ToStdString());
 }
 
-void MachineVisualizationPanel::ParseGCodeLine(const wxString& line, float& currentX, float& currentY, float& currentZ, bool& isRapid)
+void MachineVisualizationPanel::AddLineSegment(float x, float y, bool isRapid)
 {
-    wxString upperLine = line.Upper();
+    GCodeLine gcLine;
+    gcLine.startX = m_currentX;
+    gcLine.startY = m_currentY;
+    gcLine.startZ = m_currentZ;
+    gcLine.endX = x;
+    gcLine.endY = y;
+    gcLine.endZ = m_currentZ; // Assuming 2D for now
+    gcLine.isRapid = isRapid;
+    gcLine.color = isRapid ? wxColour(255, 0, 0) : wxColour(0, 100, 255);
     
-    // Check for motion commands
-    if (upperLine.Contains("G0") || upperLine.Contains("G00")) {
-        isRapid = true;
-    } else if (upperLine.Contains("G1") || upperLine.Contains("G01")) {
-        isRapid = false;
+    m_gcodeLines.push_back(gcLine);
+    
+    UpdateBounds(m_currentX, m_currentY);
+    UpdateBounds(x, y);
+    
+    m_currentX = x;
+    m_currentY = y;
+}
+
+void MachineVisualizationPanel::AddArcSegments(float x, float y, float i, float j, bool isClockwise)
+{
+    float startX = m_currentX;
+    float startY = m_currentY;
+    float endX = m_isIncrementalMode ? startX + x : x;
+    float endY = m_isIncrementalMode ? startY + y : y;
+
+    float centerX = startX + i;
+    float centerY = startY + j;
+
+    float radius = sqrt(i * i + j * j);
+    float startAngle = atan2(startY - centerY, startX - centerX);
+    float endAngle = atan2(endY - centerY, endX - centerX);
+
+    if (isClockwise) { // G2
+        if (endAngle >= startAngle) {
+            endAngle -= 2 * M_PI;
+        }
+    } else { // G3
+        if (endAngle <= startAngle) {
+            endAngle += 2 * M_PI;
+        }
+    }
+
+    float totalAngle = endAngle - startAngle;
+    int numSegments = std::max(1, static_cast<int>(fabs(totalAngle) * radius / 0.5)); // Segments for ~0.5mm chord length
+
+    float angleStep = totalAngle / numSegments;
+
+    float lastX = startX;
+    float lastY = startY;
+
+    for (int k = 1; k <= numSegments; ++k) {
+        float angle = startAngle + k * angleStep;
+        float nextX = centerX + radius * cos(angle);
+        float nextY = centerY + radius * sin(angle);
+
+        GCodeLine gcLine;
+        gcLine.startX = lastX;
+        gcLine.startY = lastY;
+        gcLine.startZ = m_currentZ;
+        gcLine.endX = nextX;
+        gcLine.endY = nextY;
+        gcLine.endZ = m_currentZ;
+        gcLine.isRapid = false;
+        gcLine.color = wxColour(0, 100, 255);
+        m_gcodeLines.push_back(gcLine);
+
+        UpdateBounds(lastX, lastY);
+        UpdateBounds(nextX, nextY);
+
+        lastX = nextX;
+        lastY = nextY;
+    }
+
+    m_currentX = endX;
+    m_currentY = endY;
+}
+
+
+void MachineVisualizationPanel::ParseGCode(const wxString& gcode)
+{
+    LOG_INFO("ParseGCode started with comprehensive parser.");
+    
+    // Clear previous visualization data
+    m_gcodeLines.clear();
+    m_boundsValid = false;
+    
+    // Create parser instance
+    GCodeParser parser;
+    
+    // Set up callbacks for real-time updates
+    parser.setProgressCallback([this](int currentLine, int totalLines) {
+        // Could update progress bar if we had one
+        // For now, just log occasionally
+        if (currentLine % 100 == 0) {
+            LOG_INFO(wxString::Format("Parsing progress: %d/%d lines", currentLine, totalLines).ToStdString());
+        }
+    });
+    
+    parser.setErrorCallback([this](const ParseError& error) {
+        LOG_ERROR(wxString::Format("Parse error at line %d: %s", 
+                                  error.lineNumber, error.message).ToStdString());
+    });
+    
+    // Enable comprehensive parsing features
+    parser.enableStatistics(true);
+    parser.enableToolpathGeneration(true);
+    parser.setStrictMode(false); // Be lenient with non-standard G-code
+    
+    // Parse the G-code
+    std::string gcodeStd = gcode.ToStdString();
+    bool success = parser.parseString(gcodeStd);
+    
+    if (!success) {
+        LOG_ERROR("G-code parsing failed with errors");
+        const auto& errors = parser.getErrors();
+        for (const auto& error : errors) {
+            LOG_ERROR(wxString::Format("Line %d: %s", error.lineNumber, error.message).ToStdString());
+        }
     }
     
-    // Parse coordinates
-    size_t pos = 0;
-    while (pos < upperLine.length()) {
-        wxChar axis = upperLine[pos];
-        if (axis == 'X' || axis == 'Y' || axis == 'Z') {
-            pos++;
-            wxString number;
-            while (pos < upperLine.length() && (wxIsdigit(upperLine[pos]) || upperLine[pos] == '.' || upperLine[pos] == '-' || upperLine[pos] == '+')) {
-                number += upperLine[pos];
-                pos++;
-            }
-            
-            if (!number.IsEmpty()) {
-                double value;
-                if (number.ToDouble(&value)) {
-                    switch (axis) {
-                        case 'X': currentX = (float)value; break;
-                        case 'Y': currentY = (float)value; break;
-                        case 'Z': currentZ = (float)value; break;
-                    }
-                }
-            }
-        } else {
-            pos++;
+    // Get parsing results
+    const auto& toolpath = parser.getToolpath();
+    const auto& statistics = parser.getStatistics();
+    
+    // Convert toolpath segments to visualization lines
+    for (const auto& segment : toolpath) {
+        GCodeLine gcLine;
+        gcLine.startX = static_cast<float>(segment.start.x);
+        gcLine.startY = static_cast<float>(segment.start.y);
+        gcLine.startZ = static_cast<float>(segment.start.z);
+        gcLine.endX = static_cast<float>(segment.end.x);
+        gcLine.endY = static_cast<float>(segment.end.y);
+        gcLine.endZ = static_cast<float>(segment.end.z);
+        
+        // Set color and style based on segment type
+        switch (segment.type) {
+            case ToolpathSegment::RAPID:
+                gcLine.isRapid = true;
+                gcLine.color = wxColour(255, 0, 0); // Red for rapid moves
+                break;
+            case ToolpathSegment::LINEAR:
+                gcLine.isRapid = false;
+                gcLine.color = wxColour(0, 100, 255); // Blue for cutting moves
+                break;
+            case ToolpathSegment::ARC_CW:
+            case ToolpathSegment::ARC_CCW:
+                gcLine.isRapid = false;
+                gcLine.color = wxColour(0, 150, 0); // Green for arcs
+                break;
+            case ToolpathSegment::DRILL_CYCLE:
+                gcLine.isRapid = false;
+                gcLine.color = wxColour(255, 165, 0); // Orange for drilling
+                break;
         }
+        
+        m_gcodeLines.push_back(gcLine);
+        
+        // Update bounds
+        UpdateBounds(gcLine.startX, gcLine.startY);
+        UpdateBounds(gcLine.endX, gcLine.endY);
+    }
+    
+    // Update statistics
+    m_totalLines = statistics.totalLines;
+    
+    // Apply bounds from parser if valid
+    if (statistics.boundsValid) {
+        m_minX = static_cast<float>(statistics.minBounds.x);
+        m_maxX = static_cast<float>(statistics.maxBounds.x);
+        m_minY = static_cast<float>(statistics.minBounds.y);
+        m_maxY = static_cast<float>(statistics.maxBounds.y);
+        m_minZ = static_cast<float>(statistics.minBounds.z);
+        m_maxZ = static_cast<float>(statistics.maxBounds.z);
+        m_boundsValid = true;
+    }
+    
+    // Log comprehensive statistics
+    LOG_INFO(wxString::Format("G-code parsing completed: %d total lines, %d command lines, %d segments", 
+                             statistics.totalLines, statistics.commandLines, static_cast<int>(toolpath.size())).ToStdString());
+    LOG_INFO(wxString::Format("Movement statistics: %d rapid moves, %d linear moves, %d arc moves, %d tool changes", 
+                             statistics.rapidMoves, statistics.linearMoves, statistics.arcMoves, statistics.toolChanges).ToStdString());
+    
+    if (statistics.boundsValid) {
+        LOG_INFO(wxString::Format("G-code bounds: X(%.2f to %.2f), Y(%.2f to %.2f), Z(%.2f to %.2f)", 
+                                 statistics.minBounds.x, statistics.maxBounds.x,
+                                 statistics.minBounds.y, statistics.maxBounds.y,
+                                 statistics.minBounds.z, statistics.maxBounds.z).ToStdString());
+    }
+    
+    if (statistics.estimatedTime > 0) {
+        LOG_INFO(wxString::Format("Estimated machining time: %.2f minutes", statistics.estimatedTime).ToStdString());
+    }
+    
+    if (statistics.errorLines > 0) {
+        LOG_WARNING(wxString::Format("Parsing completed with %d error lines", statistics.errorLines).ToStdString());
     }
 }
 

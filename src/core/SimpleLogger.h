@@ -19,6 +19,7 @@ public:
     
     // Simple logging methods
     void logInfo(const std::string& message);
+    void logWarning(const std::string& message);
     void logError(const std::string& message);
     void logDebug(const std::string& message);
     
@@ -35,5 +36,6 @@ private:
 
 // Simple macros
 #define LOG_INFO(msg) SimpleLogger::getInstance().logInfo(msg)
+#define LOG_WARNING(msg) SimpleLogger::getInstance().logWarning(msg)
 #define LOG_ERROR(msg) SimpleLogger::getInstance().logError(msg)
 #define LOG_DEBUG(msg) SimpleLogger::getInstance().logDebug(msg)

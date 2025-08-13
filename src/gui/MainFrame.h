@@ -78,8 +78,13 @@ public:
     
     // Machine status updates
     void UpdateMachineStatus(const std::string& machineId, const std::string& status);
-    void UpdateConnectionStatus(const std::string& machineId, bool connected);
     void UpdateDRO(const std::string& machineId, const std::vector<float>& mpos, const std::vector<float>& wpos);
+    
+    // UNIVERSAL connection status handler - THE ONLY method for connection updates
+    void HandleConnectionStatusChange(const std::string& machineId, bool connected);
+    
+    // Legacy method - kept for compatibility but redirects to HandleConnectionStatusChange
+    void UpdateConnectionStatus(const std::string& machineId, bool connected);
     
 private:
     // Event handlers
@@ -162,6 +167,9 @@ private:
     
     // Communication setup
     void SetupCommunicationCallbacks();
+    
+    // G-Code panel integration
+    void ConnectGCodePanels();
     
     // Core components - temporarily disabled
     // StateManager& m_stateManager;

@@ -458,6 +458,26 @@ void MainFrame::UpdateStatusBarFieldWidths()
     }
 }
 
+// Update toolbar button states based on connection status
+void MainFrame::UpdateToolbarStates()
+{
+    if (!m_mainToolbar) return;
+    
+    bool hasMachineConnected = HasMachineConnected();
+    
+    // G-Code layout button should be disabled when no machine is connected
+    m_mainToolbar->EnableTool(ID_TOOLBAR_GCODE_LAYOUT, hasMachineConnected);
+    
+    // Update tooltip text based on connection state
+    if (hasMachineConnected) {
+        m_mainToolbar->SetToolShortHelp(ID_TOOLBAR_GCODE_LAYOUT, "Restore G-Code Layout (Editor + Machine Visualization)");
+    } else {
+        m_mainToolbar->SetToolShortHelp(ID_TOOLBAR_GCODE_LAYOUT, "G-Code Layout (Connect to a machine first)");
+    }
+    
+    m_mainToolbar->Refresh();
+}
+
 void MainFrame::TogglePanelVisibility(PanelID panelId) {
     bool isVisible = IsPanelVisible(panelId);
     ShowPanel(panelId, !isVisible);
@@ -538,12 +558,17 @@ void MainFrame::UpdateMachineStatus(const std::string& machineId, const std::str
     UpdateStatusBar();
 }
 
-void MainFrame::UpdateConnectionStatus(const std::string& machineId, bool connected) {
-    // Find machine name from machine manager
-    std::string machineName = "Unknown";
+// UNIVERSAL CONNECTION STATUS HANDLER - THE ONLY method for connection updates
+void MainFrame::HandleConnectionStatusChange(const std::string& machineId, bool connected) {
+    LOG_INFO("HandleConnectionStatusChange: machineId=" + machineId + ", connected=" + (connected ? "true" : "false"));
+    
+    // Get machine info from machine manager
+    std::string machineName = "Unknown Machine";
+    MachineManagerPanel* machineManager = nullptr;
+    
     PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
     if (machineManagerInfo) {
-        MachineManagerPanel* machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
+        machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
         if (machineManager) {
             const auto& machines = machineManager->GetMachines();
             for (const auto& machine : machines) {
@@ -555,22 +580,62 @@ void MainFrame::UpdateConnectionStatus(const std::string& machineId, bool connec
         }
     }
     
-    if (connected) {
-        SetStatusText(wxString::Format("Connected to %s", machineName), STATUS_CONNECTION);
-    } else {
-        SetStatusText("Disconnected", STATUS_CONNECTION);
+    // 1. UPDATE MACHINE MANAGER PANEL
+    if (machineManager) {
+        machineManager->UpdateConnectionStatus(machineId, connected);
     }
     
+    // 2. UPDATE STATUS BAR
+    if (connected) {
+        SetStatusText(wxString::Format("Connected to %s", machineName), STATUS_CONNECTION);
+        LOG_INFO("Status bar updated: Connected to " + machineName);
+    } else {
+        SetStatusText("Disconnected", STATUS_CONNECTION);
+        LOG_INFO("Status bar updated: Disconnected");
+    }
+    
+    // 3. UPDATE GLOBAL CONNECTION STATE
     SetMachineConnected(connected);
     
-    // Update menu states based on connection status
+    // 4. UPDATE CONSOLE PANEL
+    ConsolePanel* console = GetConsolePanel();
+    if (console) {
+        if (connected) {
+            console->SetConnectionEnabled(true, machineName);
+            console->SetActiveMachine(machineId, machineName);
+            
+            // Log connection establishment
+            console->LogMessage("=== CONNECTION ESTABLISHED ===", "INFO");
+            console->LogMessage("Connected to: " + machineName + " (ID: " + machineId + ")", "INFO");
+            console->LogMessage("Status: READY - Machine is active and awaiting commands", "INFO");
+            console->LogMessage("=== END CONNECTION INFO ===", "INFO");
+        } else {
+            console->SetConnectionEnabled(false);
+            
+            // Log disconnection
+            console->LogMessage("=== MACHINE DISCONNECTED ===", "WARNING");
+            console->LogMessage("Machine: " + machineName + " (ID: " + machineId + ")", "INFO");
+            console->LogMessage("=== MACHINE OFFLINE ===", "WARNING");
+            
+            // Show notification for unexpected disconnections
+            if (!machineName.empty() && machineName != "Unknown Machine") {
+                NOTIFY_ERROR("Machine Connection Lost", 
+                    wxString::Format("Connection to '%s' has been lost!", machineName));
+            }
+        }
+    }
+    
+    // 5. UPDATE UI STATES
     UpdateMenuItems();
-    
-    // Update the complete status bar
     UpdateStatusBar();
-    
-    // Update field widths since connection status changed
     UpdateStatusBarFieldWidths();
+    
+    LOG_INFO("HandleConnectionStatusChange completed for " + machineName);
+}
+
+// Legacy method - redirects to HandleConnectionStatusChange
+void MainFrame::UpdateConnectionStatus(const std::string& machineId, bool connected) {
+    HandleConnectionStatusChange(machineId, connected);
 }
 
 void MainFrame::UpdateDRO(const std::string& machineId, const std::vector<float>& mpos, const std::vector<float>& wpos) {
@@ -704,6 +769,24 @@ void MainFrame::OnToolbarConnectLayout(wxCommandEvent& WXUNUSED(event)) {
 
 void MainFrame::OnToolbarGCodeLayout(wxCommandEvent& WXUNUSED(event)) {
     LOG_INFO("Toolbar: Restore G-Code Layout");
+    
+    // Check if any machine is currently connected
+    bool anyMachineConnected = HasMachineConnected();
+    
+    if (!anyMachineConnected) {
+        LOG_INFO("No machines connected - showing connection required message");
+        
+        // Show notification that connection is required for G-Code features
+        NOTIFY_WARNING("Connection Required", 
+            "G-Code features require an active machine connection. "
+            "Please connect to a machine first using the Machine Manager.");
+        
+        // Instead of showing G-Code layout, show the Connection layout to help user connect
+        RestoreConnectionFirstLayout();
+        return;
+    }
+    
+    // Machine is connected, proceed with G-Code layout
     RestoreGCodeLayout();
 }
 
@@ -998,8 +1081,9 @@ void MainFrame::UpdateMenuItems()
     // Update menu item check states based on panel visibility
     wxMenuBar* menuBar = GetMenuBar();
     if (menuBar) {
-        // For notebook-based approach, panels are always "visible" if they exist
-        // We could make this more sophisticated later
+        bool hasConnection = HasMachineConnected();
+        
+        // Update check states based on panel visibility
         menuBar->Check(ID_WINDOW_DRO, IsPanelVisible(PANEL_DRO));
         menuBar->Check(ID_WINDOW_JOG, IsPanelVisible(PANEL_JOG));
         menuBar->Check(ID_WINDOW_MACHINE_MANAGER, IsPanelVisible(PANEL_MACHINE_MANAGER));
@@ -1008,7 +1092,27 @@ void MainFrame::UpdateMenuItems()
         menuBar->Check(ID_WINDOW_MACRO, IsPanelVisible(PANEL_MACRO));
         menuBar->Check(ID_WINDOW_SVG_VIEWER, IsPanelVisible(PANEL_SVG_VIEWER));
         menuBar->Check(ID_WINDOW_SETTINGS, false); // Settings is special - not part of main UI
+        
+        // Enable/disable menu items based on connection status
+        // Machine Manager and Console are always enabled (needed for connection management)
+        menuBar->Enable(ID_WINDOW_MACHINE_MANAGER, true);
+        menuBar->Enable(ID_WINDOW_CONSOLE, true);
+        
+        // All other panels require a machine connection to be useful
+        menuBar->Enable(ID_WINDOW_DRO, hasConnection);
+        menuBar->Enable(ID_WINDOW_JOG, hasConnection);
+        menuBar->Enable(ID_WINDOW_GCODE_EDITOR, hasConnection);
+        menuBar->Enable(ID_WINDOW_SVG_VIEWER, hasConnection);
+        menuBar->Enable(ID_WINDOW_MACRO, hasConnection);
+        menuBar->Enable(ID_WINDOW_SETTINGS, hasConnection);
+        
+        LOG_INFO(wxString::Format("UpdateMenuItems: Connection=%s, panels %s", 
+                                hasConnection ? "YES" : "NO", 
+                                hasConnection ? "enabled" : "disabled").ToStdString());
     }
+    
+    // Also update toolbar states whenever menu items are updated
+    UpdateToolbarStates();
 }
 
 // Create toolbars
@@ -1031,13 +1135,16 @@ void MainFrame::CreateToolBars()
     m_mainToolbar->AddTool(wxID_SAVE, "Save", saveBitmap, "Save file");
     m_mainToolbar->AddSeparator();
     
-    // Add Connect layout button
+    // Add Connect layout button - always enabled
     m_mainToolbar->AddTool(ID_TOOLBAR_CONNECT_LAYOUT, "Connect", connectBitmap, "Restore Connection Layout (Machine Manager + Console)");
     
-    // Add G-code layout button
+    // Add G-code layout button - disabled when no connection
     m_mainToolbar->AddTool(ID_TOOLBAR_GCODE_LAYOUT, "G-Code", gcodeBitmap, "Restore G-Code Layout (Editor + Machine Visualization)");
     
     m_mainToolbar->Realize();
+    
+    // Initial toolbar state update
+    UpdateToolbarStates();
 }
 
 // Create status bar
@@ -1214,73 +1321,8 @@ void MainFrame::SetupCommunicationCallbacks()
         // THREAD SAFETY: Use CallAfter to ensure GUI operations happen on main thread
         CallAfter([this, console, machineId, connected]() {
             try {
-                // Update status bar
-                UpdateConnectionStatus(machineId, connected);
-                
-                // Note: console connection state is managed by MachineManagerPanel with machine names
-                
-                if (connected) {
-                    // Set the connected machine as active for console commands
-                    // Look up machine name from machine manager
-                    std::string machineName = "Unknown Machine";
-                    PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
-                    if (machineManagerInfo) {
-                        MachineManagerPanel* machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
-                        if (machineManager) {
-                            // Get machine name from machine manager panel
-                            const auto& machines = machineManager->GetMachines();
-                            for (const auto& machine : machines) {
-                                if (machine.id == machineId) {
-                                    machineName = machine.name;
-                                    break;
-                                }
-                            }
-                            
-                            // CRITICAL: Update the MachineManager panel connection status
-                            machineManager->UpdateConnectionStatus(machineId, connected);
-                        }
-                    }
-                    console->SetActiveMachine(machineId, machineName);
-                    // Note: Machine name and detailed connection logging is handled by MachineManagerPanel
-                } else {
-                    // CRITICAL: Connection lost - handle emergency disconnect
-                    LOG_INFO("Connection lost detected for machine: " + machineId);
-                    
-                    console->LogMessage("=== MACHINE DISCONNECTED ===", "WARNING");
-                    console->LogMessage("Machine ID: " + machineId, "INFO");
-                    console->LogMessage("=== MACHINE OFFLINE ===", "WARNING");
-                    
-                    // CRITICAL: Update the MachineManager panel connection status
-                    std::string machineName = "Unknown Machine";
-                    PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
-                    if (machineManagerInfo) {
-                        MachineManagerPanel* machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
-                        if (machineManager) {
-                            // Find machine name for notifications
-                            const auto& machines = machineManager->GetMachines();
-                            for (const auto& machine : machines) {
-                                if (machine.id == machineId) {
-                                    machineName = machine.name;
-                                    break;
-                                }
-                            }
-                            
-                            // Update the MachineManager panel connection status
-                            machineManager->UpdateConnectionStatus(machineId, connected);
-                        }
-                    }
-                    
-                    // Show critical error notification
-                    NOTIFY_ERROR("Machine Connection Lost", 
-                        wxString::Format("Connection to '%s' has been lost! All operations have been stopped.", machineName));
-                    
-                    // CRITICAL: Automatically switch to Connection layout when connection is lost
-                    LOG_INFO("Connection lost - triggering emergency layout switch to Connection-first layout");
-                    RestoreConnectionFirstLayout();
-                    
-                    // Disable console commands immediately
-                    console->SetConnectionEnabled(false);
-                }
+                // Use ONLY the universal connection handler - no more multiple different paths
+                HandleConnectionStatusChange(machineId, connected);
             } catch (const std::exception& e) {
                 // Catch any exceptions to prevent crashes
                 LOG_ERROR("Exception in connection status callback: " + std::string(e.what()));
@@ -1634,6 +1676,9 @@ void MainFrame::RestoreGCodeLayout()
                 m_auiManager.Update();
                 UpdateMenuItems();
                 
+                // CRITICAL: Connect G-code Editor and Machine Visualization panels even when restoring saved layout
+                ConnectGCodePanels();
+                
                 // Show notification about layout restoration
                 NOTIFY_SUCCESS("G-Code Layout Restored", "Saved layout with preserved splitter positions restored.");
                 LOG_INFO("RestoreGCodeLayout: Layout restoration completed successfully");
@@ -1703,6 +1748,9 @@ void MainFrame::RestoreGCodeLayout()
         m_auiManager.Update();
         UpdateMenuItems();
         
+        // Connect G-code Editor and Machine Visualization panels
+        ConnectGCodePanels();
+        
         // Save this layout for future use
         SaveGCodeLayout();
         
@@ -1716,6 +1764,70 @@ void MainFrame::RestoreGCodeLayout()
         SetupGCodeLayout();
         m_auiManager.Update();
         UpdateMenuItems();
+    }
+}
+
+// Connect G-Code Editor and Machine Visualization panels for real-time updates
+void MainFrame::ConnectGCodePanels() {
+    try {
+        // Find the G-Code Editor panel
+        PanelInfo* gcodeEditorInfo = FindPanelInfo(PANEL_GCODE_EDITOR);
+        if (!gcodeEditorInfo) {
+            LOG_WARNING("ConnectGCodePanels: G-Code Editor panel not found");
+            return;
+        }
+        
+        GCodeEditor* gcodeEditor = dynamic_cast<GCodeEditor*>(gcodeEditorInfo->panel);
+        if (!gcodeEditor) {
+            LOG_ERROR("ConnectGCodePanels: G-Code Editor panel cast failed");
+            return;
+        }
+        
+        // Find the Machine Visualization panel
+        PanelInfo* machineVisInfo = FindPanelInfo(PANEL_MACHINE_VISUALIZATION);
+        if (!machineVisInfo) {
+            LOG_WARNING("ConnectGCodePanels: Machine Visualization panel not found");
+            return;
+        }
+        
+        MachineVisualizationPanel* machineVis = dynamic_cast<MachineVisualizationPanel*>(machineVisInfo->panel);
+        if (!machineVis) {
+            LOG_ERROR("ConnectGCodePanels: Machine Visualization panel cast failed");
+            return;
+        }
+        
+        // Set up the callback from G-Code Editor to Machine Visualization
+        gcodeEditor->SetTextChangeCallback([machineVis](const std::string& gcodeText) {
+            try {
+                LOG_INFO("MainFrame callback: Received G-code text of length: " + std::to_string(gcodeText.length()));
+                // Update the visualization with the new G-code content
+                machineVis->SetGCodeContent(wxString::FromUTF8(gcodeText));
+                
+                LOG_INFO("G-Code visualization updated from editor change");
+                
+            } catch (const std::exception& e) {
+                LOG_ERROR("Failed to update G-Code visualization: " + std::string(e.what()));
+            }
+        });
+        
+        // Also update visualization with current G-code content immediately
+        std::string currentGCode_std = gcodeEditor->GetText();
+        if (!currentGCode_std.empty()) {
+            machineVis->SetGCodeContent(wxString::FromUTF8(currentGCode_std));
+        }
+        
+        LOG_INFO("Successfully connected G-Code Editor and Machine Visualization panels");
+        
+        // Show notification about the connection
+        NOTIFY_SUCCESS("G-Code Panels Connected", 
+            "G-Code Editor is now linked to Machine Visualization. Changes will update in real-time.");
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("ConnectGCodePanels failed: " + std::string(e.what()));
+        
+        // Show error notification to user
+        NOTIFY_ERROR("G-Code Panel Connection Failed", 
+            "Could not connect G-Code Editor to Machine Visualization. Real-time updates may not work.");
     }
 }
 
