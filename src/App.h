@@ -6,6 +6,7 @@
 #pragma once
 
 #include <wx/wx.h>
+#include <wx/snglinst.h>
 
 class MainFrame;
 
@@ -17,4 +18,9 @@ public:
 
 private:
     MainFrame* m_mainFrame;
+    wxSingleInstanceChecker* m_singleInstanceChecker;
+    
+    // Helper methods for single instance handling
+    bool IsAnotherInstanceRunning();
+    bool BringExistingInstanceToFront();
 };

@@ -1,0 +1,148 @@
+{
+    "implemented": [
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Main window with AUI docking system",
+            "feature": "Basic Application Framework"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Add, edit, and manage CNC machine configurations",
+            "feature": "Machine Manager Panel"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Command line interface with history and session logging",
+            "feature": "Console Terminal"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Serial port and network connection handling",
+            "feature": "Connection Management"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "MinGW-based build with CMAKE and automated build scripts",
+            "feature": "Build System"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Centralized error reporting with user-friendly dialogs",
+            "feature": "Error Handling System"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Non-blocking toast notifications for user feedback",
+            "feature": "Notification System"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Persistent application settings and window layouts",
+            "feature": "State Management"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "File-based logging system with multiple log levels",
+            "feature": "Simple Logger"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Real-time position display for machine coordinates",
+            "feature": "DRO (Digital Readout)"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Manual machine movement controls with configurable steps",
+            "feature": "Jogging Controls"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Basic text editor for G-code files with syntax highlighting",
+            "feature": "G-code Editor"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Basic SVG file viewing capability",
+            "feature": "SVG Viewer"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Configurable macro buttons for common commands",
+            "feature": "Macro System"
+        }
+    ],
+    "todo": [
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Implement G-code streaming to CNC machine",
+            "priority": "High",
+            "task": "G-code Sender"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Parse and display FluidNC status reports",
+            "priority": "High",
+            "task": "Real-time Status"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Show progress bar and estimated completion time",
+            "priority": "Medium",
+            "task": "Job Progress Tracking"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "2D/3D preview of G-code tool paths",
+            "priority": "Medium",
+            "task": "Tool Path Visualization"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Proper handling of machine alarms and error states",
+            "priority": "High",
+            "task": "Alarm Handling"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Touch probe and work coordinate system setup",
+            "priority": "Medium",
+            "task": "Probing Functions"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Conditional macros and variable substitution",
+            "priority": "Low",
+            "task": "Advanced Macros"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Extensible plugin architecture for custom features",
+            "priority": "Low",
+            "task": "Plugin System"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Automatic discovery of FluidNC devices on network",
+            "priority": "Medium",
+            "task": "Network Discovery"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Local and remote file browsing and management",
+            "priority": "Medium",
+            "task": "File Management"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Backup and restore application configurations",
+            "priority": "Low",
+            "task": "Settings Import/Export"
+        },
+        {
+            "dateAdded": "2025-08-13",
+            "description": "Internationalization and localization support",
+            "priority": "Low",
+            "task": "Multi-language Support"
+        }
+    ]
+}

@@ -334,57 +334,53 @@ void MachineManagerPanel::AttemptAutoConnect()
     
     LOG_INFO("Attempting auto-connect to machine: " + autoConnectMachine->name);
     
-    // Use real communication manager for connection
-    bool connectionSuccess = CommunicationManager::Instance().ConnectMachine(
+    // CRITICAL: Set connecting state, do NOT assume connection success
+    autoConnectMachine->connected = false;  // Ensure we start disconnected
+    autoConnectMachine->lastConnected = "Connecting...";  // Show connecting status
+    
+    // Refresh UI to show "Connecting..." status immediately
+    RefreshMachineList();
+    
+    // Select and show the machine being connected
+    SelectMachine(autoConnectMachine->id);
+    for (int i = 0; i < m_machineList->GetItemCount(); ++i) {
+        if (m_machineList->GetItemText(i, 0) == autoConnectMachine->name) {
+            m_machineList->SetItemState(i, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+            break;
+        }
+    }
+    
+    // Start the connection attempt - do NOT assume success
+    bool connectionAttemptStarted = CommunicationManager::Instance().ConnectMachine(
         autoConnectMachine->id, autoConnectMachine->host, autoConnectMachine->port);
     
-    if (connectionSuccess) {
-        // Update machine status
-        autoConnectMachine->connected = true;
-        autoConnectMachine->lastConnected = wxDateTime::Now().Format("%Y-%m-%d %H:%M:%S").ToStdString();
+    if (connectionAttemptStarted) {
+        // Connection attempt started successfully - wait for actual connection callback
+        LOG_INFO("Auto-connect attempt started for machine: " + autoConnectMachine->name + 
+                 " (" + autoConnectMachine->host + ":" + std::to_string(autoConnectMachine->port) + ")");
         
-        // Save updated configuration
-        SaveMachineConfigs();
-        
-        // Refresh UI
-        RefreshMachineList();
-        
-        // Select and show the auto-connected machine
-        SelectMachine(autoConnectMachine->id);
-        for (int i = 0; i < m_machineList->GetItemCount(); ++i) {
-            if (m_machineList->GetItemText(i, 0) == autoConnectMachine->name) {
-                m_machineList->SetItemState(i, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
-                break;
-            }
-        }
-        
-        // Set this as the active machine for console commands
-        MainFrame* mainFrame = dynamic_cast<MainFrame*>(wxGetTopLevelParent(this));
-        if (mainFrame) {
-            ConsolePanel* console = mainFrame->GetConsolePanel();
-            if (console) {
-                console->SetActiveMachine(autoConnectMachine->id, autoConnectMachine->name);
-                console->SetConnectionEnabled(true, autoConnectMachine->name);
-            }
-        }
-        
-        // Show success notification
-        NotificationSystem::Instance().ShowSuccess(
-            "Auto-Connect Successful",
-            wxString::Format("Automatically connected to '%s' (%s:%d). Machine is ready for use.",
+        // Show info notification about connection attempt
+        NotificationSystem::Instance().ShowInfo(
+            "Connecting to Machine",
+            wxString::Format("Attempting to connect to '%s' (%s:%d). Please wait...",
                            autoConnectMachine->name, autoConnectMachine->host, autoConnectMachine->port)
         );
         
-        LOG_INFO("Auto-connect successful for machine: " + autoConnectMachine->name);
+        // CRITICAL: Actual connection status will be updated via UpdateConnectionStatus() callback
+        // when the FluidNCClient successfully connects or fails
         
     } else {
-        LOG_ERROR("Auto-connect failed for machine: " + autoConnectMachine->name + " (" + 
+        // Failed to even start connection attempt
+        autoConnectMachine->lastConnected = "Connection failed";
+        RefreshMachineList();
+        
+        LOG_ERROR("Auto-connect attempt failed to start for machine: " + autoConnectMachine->name + " (" + 
                   autoConnectMachine->host + ":" + std::to_string(autoConnectMachine->port) + ")");
         
-        // Show warning notification (not an error since this is automatic)
-        NotificationSystem::Instance().ShowWarning(
+        // Show error notification for failed connection attempt
+        NotificationSystem::Instance().ShowError(
             "Auto-Connect Failed",
-            wxString::Format("Failed to automatically connect to '%s' (%s:%d). Machine may be offline.",
+            wxString::Format("Failed to start connection attempt to '%s' (%s:%d). Check configuration.",
                            autoConnectMachine->name, autoConnectMachine->host, autoConnectMachine->port)
         );
     }

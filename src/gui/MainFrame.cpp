@@ -6,6 +6,7 @@
 #include "MainFrame.h"
 #include "WelcomeDialog.h"
 #include "AboutDialog.h"
+#include "ProjectInfoDialog.h"
 #include "DROPanel.h"
 #include "JogPanel.h"
 #include "MachineManagerPanel.h"
@@ -13,6 +14,7 @@
 #include "GCodeEditor.h"
 #include "MacroPanel.h"
 #include "SVGViewer.h"
+#include "MachineVisualizationPanel.h"
 #include "SettingsDialog.h"
 #include "core/SimpleLogger.h"
 #include "core/Version.h"
@@ -33,6 +35,7 @@
 // Menu IDs
 enum {
     ID_SHOW_WELCOME = wxID_HIGHEST + 1,
+    ID_PROJECT_INFO,
     ID_TEST_ERROR_HANDLER,
     ID_TEST_NOTIFICATION_SYSTEM,
     // Window menu items
@@ -46,7 +49,10 @@ enum {
     ID_WINDOW_CONSOLE,
     ID_WINDOW_RESET_LAYOUT,
     // Toolbar items
-    ID_TOOLBAR_CONNECT_LAYOUT
+    ID_TOOLBAR_CONNECT_LAYOUT,
+    ID_TOOLBAR_GCODE_LAYOUT,
+    // Layout save
+    ID_WINDOW_SAVE_LAYOUT
 };
 
 // Event table
@@ -54,6 +60,7 @@ wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
     EVT_MENU(wxID_EXIT, MainFrame::OnExit)
     EVT_MENU(wxID_ABOUT, MainFrame::OnAbout)
     EVT_MENU(ID_SHOW_WELCOME, MainFrame::OnShowWelcome)
+    EVT_MENU(ID_PROJECT_INFO, MainFrame::OnProjectInfo)
     EVT_MENU(ID_TEST_ERROR_HANDLER, MainFrame::OnTestErrorHandler)
     EVT_MENU(ID_TEST_NOTIFICATION_SYSTEM, MainFrame::OnTestNotificationSystem)
     // Window menu events
@@ -66,8 +73,15 @@ wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
     EVT_MENU(ID_WINDOW_MACRO, MainFrame::OnWindowMacro)
     EVT_MENU(ID_WINDOW_CONSOLE, MainFrame::OnWindowConsole)
     EVT_MENU(ID_WINDOW_RESET_LAYOUT, MainFrame::OnWindowResetLayout)
+    EVT_MENU(ID_WINDOW_SAVE_LAYOUT, MainFrame::OnWindowSaveLayout)
     // Toolbar events
     EVT_MENU(ID_TOOLBAR_CONNECT_LAYOUT, MainFrame::OnToolbarConnectLayout)
+    EVT_MENU(ID_TOOLBAR_GCODE_LAYOUT, MainFrame::OnToolbarGCodeLayout)
+    // AUI events
+    EVT_AUI_PANE_CLOSE(MainFrame::OnPaneClose)
+    EVT_AUI_PANE_ACTIVATED(MainFrame::OnPaneActivated)
+    EVT_AUI_PANE_BUTTON(MainFrame::OnPaneButton)
+    EVT_AUI_RENDER(MainFrame::OnAuiRender)
     EVT_CLOSE(MainFrame::OnClose)
 wxEND_EVENT_TABLE()
 
@@ -93,11 +107,14 @@ MainFrame::MainFrame()
     // Create panels and setup AUI layout
     CreatePanels();
     
+    // Add all panels to AUI manager (even if initially hidden)
+    SetupAuiManager();
+    
     // Initialize status bar with proper information after panels are created
     CallAfter([this]() {
         UpdateStatusBar();
     });
-    SetupConnectionFirstLayout(); // Use connection-first layout instead of default
+    RestoreConnectionFirstLayout(); // Use connection-first layout and preserve splitter positions
     
     // Update menu states
     UpdateMenuItems();
@@ -165,12 +182,15 @@ void MainFrame::CreateMenuBar()
     windowMenu->AppendCheckItem(ID_WINDOW_CONSOLE, "&Console\tCtrl+7", "Show/Hide Console panel");
     windowMenu->AppendCheckItem(ID_WINDOW_SETTINGS, "&Settings\tCtrl+8", "Show/Hide Settings panel");
     windowMenu->AppendSeparator();
+    windowMenu->Append(ID_WINDOW_SAVE_LAYOUT, "&Save Layout\tCtrl+S", "Save current layout with splitter positions");
     windowMenu->Append(ID_WINDOW_RESET_LAYOUT, "&Reset Layout\tCtrl+R", "Reset all panels to default layout");
     menuBar->Append(windowMenu, "&Window");
     
     // Help menu
     wxMenu* helpMenu = new wxMenu();
     helpMenu->Append(ID_SHOW_WELCOME, "Show &Welcome Dialog", "Show the welcome dialog again");
+    helpMenu->AppendSeparator();
+    helpMenu->Append(ID_PROJECT_INFO, "Project &Information...", "Edit project implementation status and ToDo list");
     helpMenu->AppendSeparator();
     helpMenu->Append(ID_TEST_ERROR_HANDLER, "&Test Error Handler", "Test the error handling system");
     helpMenu->Append(ID_TEST_NOTIFICATION_SYSTEM, "Test &Notification System", "Test the notification system");
@@ -196,6 +216,12 @@ void MainFrame::OnAbout(wxCommandEvent& WXUNUSED(event))
 void MainFrame::OnShowWelcome(wxCommandEvent& WXUNUSED(event))
 {
     WelcomeDialog dialog(this);
+    dialog.ShowModal();
+}
+
+void MainFrame::OnProjectInfo(wxCommandEvent& WXUNUSED(event))
+{
+    ProjectInfoDialog dialog(this);
     dialog.ShowModal();
 }
 
@@ -611,10 +637,127 @@ void MainFrame::OnWindowResetLayout(wxCommandEvent& WXUNUSED(event)) {
     ResetLayout();
 }
 
+void MainFrame::OnWindowSaveLayout(wxCommandEvent& WXUNUSED(event)) {
+    LOG_INFO("Window menu: Save Layout");
+    SaveCurrentLayoutBasedOnContext();
+    NOTIFY_SUCCESS("Layout Saved", "Current layout and splitter positions have been saved.");
+}
+
 // Toolbar event handlers
 void MainFrame::OnToolbarConnectLayout(wxCommandEvent& WXUNUSED(event)) {
     LOG_INFO("Toolbar: Restore Connection Layout");
+    
+    // Check if any machine is currently connected
+    bool anyMachineConnected = HasMachineConnected();
+    
+    if (!anyMachineConnected) {
+        LOG_INFO("No machines connected - checking for autoconnect machine");
+        
+        // Find machine manager and attempt autoconnect if available
+        PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
+        if (machineManagerInfo) {
+            MachineManagerPanel* machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
+            if (machineManager) {
+                // Check if there's a machine configured for autoconnect
+                const auto& machines = machineManager->GetMachines();
+                bool hasAutoConnectMachine = false;
+                std::string autoConnectMachineName = "";
+                
+                for (const auto& machine : machines) {
+                    if (machine.autoConnect && !machine.connected) {
+                        hasAutoConnectMachine = true;
+                        autoConnectMachineName = machine.name;
+                        break;
+                    }
+                }
+                
+                if (hasAutoConnectMachine) {
+                    LOG_INFO("Found autoconnect machine: " + autoConnectMachineName + " - attempting connection");
+                    
+                    // Show notification that we're attempting autoconnect
+                    NOTIFY_INFO("Auto-Connecting", 
+                        wxString::Format("No machines connected. Attempting to connect to '%s'...", autoConnectMachineName));
+                    
+                    // Trigger autoconnect attempt
+                    machineManager->AttemptAutoConnect();
+                } else {
+                    LOG_INFO("No autoconnect machine found - just restoring layout");
+                    
+                    // Show notification that user needs to connect manually
+                    NOTIFY_WARNING("No Connection", 
+                        "No machines connected and no autoconnect machine configured. "
+                        "Use Machine Manager to connect to a machine.");
+                }
+            } else {
+                LOG_ERROR("Machine Manager panel not available");
+            }
+        } else {
+            LOG_ERROR("Machine Manager panel not found");
+        }
+    } else {
+        LOG_INFO("Machine already connected - just restoring layout");
+    }
+    
+    // Always restore the connection layout regardless of connection status
     RestoreConnectionFirstLayout();
+}
+
+void MainFrame::OnToolbarGCodeLayout(wxCommandEvent& WXUNUSED(event)) {
+    LOG_INFO("Toolbar: Restore G-Code Layout");
+    RestoreGCodeLayout();
+}
+
+// AUI event handlers
+void MainFrame::OnPaneClose(wxAuiManagerEvent& event) {
+    // Save layouts whenever a pane is closed to preserve current state
+    // Determine which layout we're in by checking visible panels
+    
+    bool hasGCodeEditor = IsPanelVisible(PANEL_GCODE_EDITOR);
+    bool hasMachineVis = IsPanelVisible(PANEL_MACHINE_VISUALIZATION);
+    bool hasMachineManager = IsPanelVisible(PANEL_MACHINE_MANAGER);
+    bool hasConsole = IsPanelVisible(PANEL_CONSOLE);
+    
+    // Save appropriate layout based on current configuration
+    if (hasGCodeEditor && hasMachineVis) {
+        // Likely in G-Code layout
+        SaveGCodeLayout();
+    } else if (hasMachineManager && hasConsole) {
+        // Likely in Connection layout
+        SaveConnectionFirstLayout();
+    }
+    
+    event.Skip(); // Allow the close to proceed
+}
+
+void MainFrame::OnPaneActivated(wxAuiManagerEvent& event) {
+    // DISABLED: Too aggressive - was overwriting manual adjustments
+    // Save layout when panes are activated (user clicks on different panes)
+    // This can happen when user moves/docks panels
+    // SaveCurrentLayoutBasedOnContext();
+    event.Skip();
+}
+
+void MainFrame::OnPaneButton(wxAuiManagerEvent& event) {
+    // DISABLED: Too aggressive - was overwriting manual adjustments
+    // Save layout when pane buttons are clicked (minimize, maximize, pin, close)
+    // This captures manual splitter adjustments and panel repositioning
+    // SaveCurrentLayoutBasedOnContext();
+    event.Skip();
+}
+
+void MainFrame::OnAuiRender(wxAuiManagerEvent& event) {
+    // DISABLED: Too aggressive - was overwriting manual adjustments immediately
+    // This event fires after AUI layout changes are rendered
+    // Perfect for capturing splitter position changes and panel repositioning
+    // static bool inRender = false;
+    // if (!inRender) {
+    //     inRender = true;
+    //     CallAfter([this]() {
+    //         SaveCurrentLayoutBasedOnContext();
+    //         inRender = false;
+    //     });
+    // }
+    event.Skip();
 }
 
 void MainFrame::RestoreWindowGeometry()
@@ -797,6 +940,17 @@ void MainFrame::CreatePanels()
         svgInfo.defaultSize = wxSize(400, 400);
         m_panels.push_back(svgInfo);
         
+        // Machine Visualization Panel
+        PanelInfo machineVisInfo;
+        machineVisInfo.id = PANEL_MACHINE_VISUALIZATION;
+        machineVisInfo.name = "machine_visualization";
+        machineVisInfo.title = "Machine Visualization";
+        machineVisInfo.panel = new MachineVisualizationPanel(this);
+        machineVisInfo.defaultVisible = false;  // No default visibility - state dependent
+        machineVisInfo.defaultPosition = "";      // No default position - state dependent
+        machineVisInfo.defaultSize = wxSize(500, 400);
+        m_panels.push_back(machineVisInfo);
+        
     } catch (const std::exception& e) {
         // If panel creation fails, create a single error panel
         wxPanel* errorPanel = new wxPanel(this, wxID_ANY);
@@ -865,6 +1019,7 @@ void MainFrame::CreateToolBars()
     wxBitmap openBitmap = wxArtProvider::GetBitmap(wxART_FILE_OPEN, wxART_TOOLBAR, wxSize(16, 16));
     wxBitmap saveBitmap = wxArtProvider::GetBitmap(wxART_FILE_SAVE, wxART_TOOLBAR, wxSize(16, 16));
     wxBitmap connectBitmap = wxArtProvider::GetBitmap(wxART_GO_FORWARD, wxART_TOOLBAR, wxSize(16, 16));
+    wxBitmap gcodeBitmap = wxArtProvider::GetBitmap(wxART_EXECUTABLE_FILE, wxART_TOOLBAR, wxSize(16, 16));
     
     // Main toolbar with common actions
     m_mainToolbar = CreateToolBar(wxTB_HORIZONTAL | wxTB_TEXT | wxTB_FLAT, wxID_ANY, "Main Toolbar");
@@ -878,6 +1033,9 @@ void MainFrame::CreateToolBars()
     
     // Add Connect layout button
     m_mainToolbar->AddTool(ID_TOOLBAR_CONNECT_LAYOUT, "Connect", connectBitmap, "Restore Connection Layout (Machine Manager + Console)");
+    
+    // Add G-code layout button
+    m_mainToolbar->AddTool(ID_TOOLBAR_GCODE_LAYOUT, "G-Code", gcodeBitmap, "Restore G-Code Layout (Editor + Machine Visualization)");
     
     m_mainToolbar->Realize();
 }
@@ -900,10 +1058,17 @@ void MainFrame::CreateStatusBar()
 // Setup AUI manager and add panels
 void MainFrame::SetupAuiManager()
 {
-    // Add all panels to AUI manager
+    // Add ALL panels to AUI manager, even if they start hidden
+    // This ensures they can be shown later by layout restoration
     for (auto& panelInfo : m_panels) {
-        if (panelInfo.defaultVisible) {
-            AddPanelToAui(panelInfo);
+        AddPanelToAui(panelInfo);
+        
+        // Hide panels that shouldn't be visible by default
+        if (!panelInfo.defaultVisible) {
+            wxAuiPaneInfo& pane = m_auiManager.GetPane(panelInfo.name);
+            if (pane.IsOk()) {
+                pane.Show(false);
+            }
         }
     }
 }
@@ -965,8 +1130,8 @@ void MainFrame::SetupConnectionFirstLayout()
     // Update the AUI manager to apply the layout
     m_auiManager.Update();
     
-    // Save this as the default "Connection-First" layout
-    SaveConnectionFirstLayout();
+    // DO NOT save immediately - let user adjust first
+    // SaveConnectionFirstLayout(); // Removed - only save after user adjusts
 }
 
 // Add a panel to the AUI manager
@@ -1044,37 +1209,90 @@ void MainFrame::SetupCommunicationCallbacks()
     });
     
     // Connection status callback - updates GUI connection state
+    // CRITICAL: This callback is called from CommunicationManager threads, so we must use CallAfter for GUI operations
     commMgr.SetConnectionStatusCallback([this, console](const std::string& machineId, bool connected) {
-        // Update status bar
-        UpdateConnectionStatus(machineId, connected);
-        
-        // Note: console connection state is managed by MachineManagerPanel with machine names
-        
-        if (connected) {
-            // Set the connected machine as active for console commands
-            // Look up machine name from machine manager
-            std::string machineName = "Unknown Machine";
-            PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
-            if (machineManagerInfo) {
-                MachineManagerPanel* machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
-                if (machineManager) {
-                    // Get machine name from machine manager panel
-                    const auto& machines = machineManager->GetMachines();
-                    for (const auto& machine : machines) {
-                        if (machine.id == machineId) {
-                            machineName = machine.name;
-                            break;
+        // THREAD SAFETY: Use CallAfter to ensure GUI operations happen on main thread
+        CallAfter([this, console, machineId, connected]() {
+            try {
+                // Update status bar
+                UpdateConnectionStatus(machineId, connected);
+                
+                // Note: console connection state is managed by MachineManagerPanel with machine names
+                
+                if (connected) {
+                    // Set the connected machine as active for console commands
+                    // Look up machine name from machine manager
+                    std::string machineName = "Unknown Machine";
+                    PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
+                    if (machineManagerInfo) {
+                        MachineManagerPanel* machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
+                        if (machineManager) {
+                            // Get machine name from machine manager panel
+                            const auto& machines = machineManager->GetMachines();
+                            for (const auto& machine : machines) {
+                                if (machine.id == machineId) {
+                                    machineName = machine.name;
+                                    break;
+                                }
+                            }
+                            
+                            // CRITICAL: Update the MachineManager panel connection status
+                            machineManager->UpdateConnectionStatus(machineId, connected);
                         }
                     }
+                    console->SetActiveMachine(machineId, machineName);
+                    // Note: Machine name and detailed connection logging is handled by MachineManagerPanel
+                } else {
+                    // CRITICAL: Connection lost - handle emergency disconnect
+                    LOG_INFO("Connection lost detected for machine: " + machineId);
+                    
+                    console->LogMessage("=== MACHINE DISCONNECTED ===", "WARNING");
+                    console->LogMessage("Machine ID: " + machineId, "INFO");
+                    console->LogMessage("=== MACHINE OFFLINE ===", "WARNING");
+                    
+                    // CRITICAL: Update the MachineManager panel connection status
+                    std::string machineName = "Unknown Machine";
+                    PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
+                    if (machineManagerInfo) {
+                        MachineManagerPanel* machineManager = dynamic_cast<MachineManagerPanel*>(machineManagerInfo->panel);
+                        if (machineManager) {
+                            // Find machine name for notifications
+                            const auto& machines = machineManager->GetMachines();
+                            for (const auto& machine : machines) {
+                                if (machine.id == machineId) {
+                                    machineName = machine.name;
+                                    break;
+                                }
+                            }
+                            
+                            // Update the MachineManager panel connection status
+                            machineManager->UpdateConnectionStatus(machineId, connected);
+                        }
+                    }
+                    
+                    // Show critical error notification
+                    NOTIFY_ERROR("Machine Connection Lost", 
+                        wxString::Format("Connection to '%s' has been lost! All operations have been stopped.", machineName));
+                    
+                    // CRITICAL: Automatically switch to Connection layout when connection is lost
+                    LOG_INFO("Connection lost - triggering emergency layout switch to Connection-first layout");
+                    RestoreConnectionFirstLayout();
+                    
+                    // Disable console commands immediately
+                    console->SetConnectionEnabled(false);
+                }
+            } catch (const std::exception& e) {
+                // Catch any exceptions to prevent crashes
+                LOG_ERROR("Exception in connection status callback: " + std::string(e.what()));
+                // Still try to show a basic error notification
+                try {
+                    NOTIFY_ERROR("Connection Error", "A connection status error occurred. Check the console for details.");
+                } catch (...) {
+                    // If even the notification fails, just log it
+                    LOG_ERROR("Failed to show connection error notification");
                 }
             }
-            console->SetActiveMachine(machineId, machineName);
-            // Note: Machine name and detailed connection logging is handled by MachineManagerPanel
-        } else {
-            console->LogMessage("=== MACHINE DISCONNECTED ===", "WARNING");
-            console->LogMessage("Machine ID: " + machineId, "INFO");
-            console->LogMessage("=== MACHINE OFFLINE ===", "WARNING");
-        }
+        });
     });
     
     // DRO update callback - updates position displays
@@ -1201,47 +1419,80 @@ void MainFrame::SaveConnectionFirstLayout()
 // Restore the Connection-First layout state
 void MainFrame::RestoreConnectionFirstLayout()
 {
+    LOG_INFO("RestoreConnectionFirstLayout: Starting layout restoration");
+    
     try {
+        // Try to load saved ConnectionFirstLayout perspective first
+        std::string savedPerspective = StateManager::getInstance().getValue<std::string>("ConnectionFirstLayout", "");
+        
+        LOG_INFO("RestoreConnectionFirstLayout: Saved perspective length: " + std::to_string(savedPerspective.length()));
+        
+        if (!savedPerspective.empty()) {
+            // Load the saved perspective (includes splitter positions)
+            wxString perspective = wxString::FromUTF8(savedPerspective.c_str());
+            LOG_INFO("RestoreConnectionFirstLayout: Attempting to load saved perspective");
+            
+            if (m_auiManager.LoadPerspective(perspective, true)) {
+                LOG_INFO("RestoreConnectionFirstLayout: Successfully loaded saved perspective - PRESERVING splitter positions");
+                m_auiManager.Update();
+                UpdateMenuItems();
+                
+                // Show notification about layout restoration
+                NOTIFY_SUCCESS("Connection Layout Restored", "Saved layout with preserved splitter positions restored.");
+                LOG_INFO("RestoreConnectionFirstLayout: Layout restoration completed successfully");
+                return; // CRITICAL: Exit here to preserve the loaded layout
+            } else {
+                LOG_INFO("RestoreConnectionFirstLayout: LoadPerspective failed, falling back to manual setup");
+            }
+        } else {
+            LOG_INFO("RestoreConnectionFirstLayout: No saved perspective found, using manual setup");
+        }
+        
+        // Manual fallback setup - ensure required panels exist in AUI manager
+        LOG_INFO("RestoreConnectionFirstLayout: Setting up manual fallback layout");
+        
+        // Only add panels if they don't exist (first-time setup)
+        PanelInfo* machineManagerInfo = FindPanelInfo(PANEL_MACHINE_MANAGER);
+        if (machineManagerInfo) {
+            wxAuiPaneInfo& pane = m_auiManager.GetPane(machineManagerInfo->name);
+            if (!pane.IsOk()) {
+                LOG_INFO("RestoreConnectionFirstLayout: Adding Machine Manager panel to AUI manager");
+                // Panel not in AUI manager, add it with default settings (first-time setup only)
+                AddPanelToAui(*machineManagerInfo);
+            } else {
+                LOG_INFO("RestoreConnectionFirstLayout: Machine Manager panel already in AUI manager");
+            }
+        } else {
+            LOG_ERROR("RestoreConnectionFirstLayout: Machine Manager panel not found!");
+        }
+        
+        PanelInfo* consoleInfo = FindPanelInfo(PANEL_CONSOLE);
+        if (consoleInfo) {
+            wxAuiPaneInfo& pane = m_auiManager.GetPane(consoleInfo->name);
+            if (!pane.IsOk()) {
+                LOG_INFO("RestoreConnectionFirstLayout: Adding Console panel to AUI manager");
+                // Panel not in AUI manager, add it with default settings (first-time setup only)
+                AddPanelToAui(*consoleInfo);
+            } else {
+                LOG_INFO("RestoreConnectionFirstLayout: Console panel already in AUI manager");
+            }
+        } else {
+            LOG_ERROR("RestoreConnectionFirstLayout: Console panel not found!");
+        }
+        
+        // If no saved perspective or loading failed, set up the layout manually
         // First minimize non-essential panels instead of hiding them
         MinimizeNonEssentialPanels();
         
-        // Ensure Machine Manager and Console are visible with proper settings
+        // Ensure Machine Manager and Console are visible, but preserve user adjustments
         for (auto& panelInfo : m_panels) {
             if (panelInfo.id == PANEL_MACHINE_MANAGER || panelInfo.id == PANEL_CONSOLE) {
                 wxAuiPaneInfo& pane = m_auiManager.GetPane(panelInfo.name);
                 if (pane.IsOk()) {
-                    // Update the pane to ensure it has all the title buttons and is flexible
-                    if (panelInfo.id == PANEL_MACHINE_MANAGER) {
-                        pane.Show(true)
-                           .Left()
-                           .Layer(0)
-                           .Row(0)
-                           .BestSize(480, 600)
-                           .MinSize(300, 400)
-                           .CloseButton(panelInfo.canClose)
-                           .MaximizeButton(true)
-                           .MinimizeButton(true)
-                           .PinButton(true)
-                           .Resizable(true)
-                           .Movable(true)
-                           .Floatable(true);
-                    } else if (panelInfo.id == PANEL_CONSOLE) {
-                        pane.Show(true)
-                           .Center()
-                           .Layer(0)
-                           .Row(0)
-                           .BestSize(720, 600)
-                           .MinSize(400, 150)
-                           .CloseButton(true)
-                           .MaximizeButton(true)
-                           .MinimizeButton(true)
-                           .PinButton(true)
-                           .Resizable(true)
-                           .Movable(true)
-                           .Floatable(true);
-                    }
+                    // Only show the pane - DO NOT reset size/position (preserves user splitter adjustments)
+                    pane.Show(true);
                 } else {
-                    // Panel not in AUI manager, add it with proper settings
+                    // Panel not in AUI manager, add it with default settings (first-time setup only)
                     wxAuiPaneInfo paneInfo;
                     if (panelInfo.id == PANEL_MACHINE_MANAGER) {
                         paneInfo.Name(panelInfo.name)
@@ -1289,5 +1540,205 @@ void MainFrame::RestoreConnectionFirstLayout()
         SetupConnectionFirstLayout();
         m_auiManager.Update();
         UpdateMenuItems();
+    }
+}
+
+// Setup G-Code layout - G-code Editor on left, Machine Visualization on right
+void MainFrame::SetupGCodeLayout()
+{
+    // Only show G-code Editor and Machine Visualization panels
+    // Hide all other panels for focused G-code editing and visualization
+    for (auto& panelInfo : m_panels) {
+        if (panelInfo.id == PANEL_GCODE_EDITOR) {
+            // Add G-code Editor panel on left side - 60% width
+            wxAuiPaneInfo paneInfo;
+            paneInfo.Name(panelInfo.name)
+                   .Caption(panelInfo.title)
+                   .BestSize(720, 600)
+                   .MinSize(400, 300)
+                   .CloseButton(panelInfo.canClose)
+                   .MaximizeButton(true)
+                   .MinimizeButton(false)
+                   .PinButton(true)
+                   .Dock()
+                   .Resizable(true)
+                   .Left()      // Dock to left side
+                   .Layer(0)    // Base layer
+                   .Row(0);     // First row
+            m_auiManager.AddPane(panelInfo.panel, paneInfo);
+        } else if (panelInfo.id == PANEL_MACHINE_VISUALIZATION) {
+            // Add Machine Visualization panel to fill center (remaining space after left G-code Editor)
+            wxAuiPaneInfo paneInfo;
+            paneInfo.Name(panelInfo.name)
+                   .Caption(panelInfo.title)
+                   .BestSize(480, 600)
+                   .MinSize(300, 200)
+                   .CloseButton(true)      // Allow closing
+                   .MaximizeButton(true)   // Allow maximizing
+                   .MinimizeButton(true)   // Allow minimizing
+                   .PinButton(true)        // Allow pinning/unpinning (floating)
+                   .Dock()
+                   .Resizable(true)
+                   .Floatable(true)        // Make it floatable
+                   .Movable(true)          // Allow moving to other positions
+                   .Center()               // Fill center area (remaining space)
+                   .Layer(0)               // Same layer as G-code editor
+                   .Row(0);                // Same row as G-code editor
+            m_auiManager.AddPane(panelInfo.panel, paneInfo);
+        }
+        // All other panels remain hidden for focused G-code work
+    }
+    
+    // Update the AUI manager to apply the layout
+    m_auiManager.Update();
+    
+    // DO NOT save immediately - let user adjust first
+    // SaveGCodeLayout(); // Removed - only save after user adjusts
+}
+
+// Save the G-Code layout state
+void MainFrame::SaveGCodeLayout()
+{
+    try {
+        // Save the AUI perspective string for the G-code layout
+        wxString perspective = m_auiManager.SavePerspective();
+        
+        // Save to StateManager with a special key for G-code layout
+        StateManager::getInstance().setValue("GCodeLayout", perspective.ToStdString());
+        
+        LOG_INFO("Saved G-Code layout perspective");
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to save G-Code layout: " + std::string(e.what()));
+    }
+}
+
+// Restore the G-Code layout state
+void MainFrame::RestoreGCodeLayout()
+{
+    LOG_INFO("RestoreGCodeLayout: Starting layout restoration");
+    
+    try {
+        // Try to load saved GCodeLayout perspective first
+        std::string savedPerspective = StateManager::getInstance().getValue<std::string>("GCodeLayout", "");
+        
+        LOG_INFO("RestoreGCodeLayout: Saved perspective length: " + std::to_string(savedPerspective.length()));
+        
+        if (!savedPerspective.empty()) {
+            // Load the saved perspective (includes splitter positions)
+            wxString perspective = wxString::FromUTF8(savedPerspective.c_str());
+            LOG_INFO("RestoreGCodeLayout: Attempting to load saved perspective");
+            
+            if (m_auiManager.LoadPerspective(perspective, true)) {
+                LOG_INFO("RestoreGCodeLayout: Successfully loaded saved perspective - PRESERVING splitter positions");
+                m_auiManager.Update();
+                UpdateMenuItems();
+                
+                // Show notification about layout restoration
+                NOTIFY_SUCCESS("G-Code Layout Restored", "Saved layout with preserved splitter positions restored.");
+                LOG_INFO("RestoreGCodeLayout: Layout restoration completed successfully");
+                return; // CRITICAL: Exit here to preserve the loaded layout
+            } else {
+                LOG_INFO("RestoreGCodeLayout: LoadPerspective failed, falling back to manual setup");
+            }
+        } else {
+            LOG_INFO("RestoreGCodeLayout: No saved perspective found, using manual setup");
+        }
+        
+        // If no saved perspective or loading failed, set up the G-Code layout from scratch
+        // This ensures proper G-Code layout positioning instead of generic AddPanelToAui
+        
+        // First hide all other panels for focused G-code work
+        for (auto& panelInfo : m_panels) {
+            if (panelInfo.id != PANEL_GCODE_EDITOR && panelInfo.id != PANEL_MACHINE_VISUALIZATION) {
+                wxAuiPaneInfo& pane = m_auiManager.GetPane(panelInfo.name);
+                if (pane.IsOk() && pane.IsShown()) {
+                    pane.Show(false);
+                    LOG_INFO("Hid non-G-code panel: " + panelInfo.name.ToStdString());
+                }
+            }
+        }
+        
+        // Ensure G-code Editor and Machine Visualization are visible, but preserve user adjustments
+        for (auto& panelInfo : m_panels) {
+            if (panelInfo.id == PANEL_GCODE_EDITOR || panelInfo.id == PANEL_MACHINE_VISUALIZATION) {
+                wxAuiPaneInfo& pane = m_auiManager.GetPane(panelInfo.name);
+                if (pane.IsOk()) {
+                    // Only show the pane - DO NOT reset size/position (preserves user splitter adjustments)
+                    pane.Show(true);
+                } else {
+                    // Panel not in AUI manager, add it with G-Code layout specific settings (first-time setup only)
+                    wxAuiPaneInfo paneInfo;
+                    if (panelInfo.id == PANEL_GCODE_EDITOR) {
+                        paneInfo.Name(panelInfo.name)
+                               .Caption(panelInfo.title)
+                               .BestSize(720, 600)
+                               .MinSize(400, 300)
+                               .Left()      // G-Code layout: Editor on left
+                               .Layer(0)
+                               .Row(0);
+                    } else {
+                        paneInfo.Name(panelInfo.name)
+                               .Caption(panelInfo.title)
+                               .BestSize(480, 600)
+                               .MinSize(300, 200)
+                               .Center()    // G-Code layout: Visualization in center
+                               .Layer(0)
+                               .Row(0);
+                    }
+                    paneInfo.CloseButton(panelInfo.canClose)
+                           .MaximizeButton(true)
+                           .MinimizeButton(true)
+                           .PinButton(true)
+                           .Dock()
+                           .Resizable(true)
+                           .Movable(true)
+                           .Floatable(true);
+                    m_auiManager.AddPane(panelInfo.panel, paneInfo);
+                }
+            }
+        }
+        
+        
+        m_auiManager.Update();
+        UpdateMenuItems();
+        
+        // Save this layout for future use
+        SaveGCodeLayout();
+        
+        // Show notification about layout restoration
+        NOTIFY_SUCCESS("G-Code Layout Restored", "G-code editing panels (Editor + Machine Visualization) are now active. Other panels are minimized.");
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to restore G-Code layout: " + std::string(e.what()));
+        
+        // Fallback to creating a new G-code layout
+        SetupGCodeLayout();
+        m_auiManager.Update();
+        UpdateMenuItems();
+    }
+}
+
+// Smart layout saving based on current context
+void MainFrame::SaveCurrentLayoutBasedOnContext() {
+    try {
+        // Determine which layout we're in by checking visible panels
+        bool hasGCodeEditor = IsPanelVisible(PANEL_GCODE_EDITOR);
+        bool hasMachineVis = IsPanelVisible(PANEL_MACHINE_VISUALIZATION);
+        bool hasMachineManager = IsPanelVisible(PANEL_MACHINE_MANAGER);
+        bool hasConsole = IsPanelVisible(PANEL_CONSOLE);
+        
+        // Save appropriate layout based on current configuration
+        if (hasGCodeEditor && hasMachineVis) {
+            // Likely in G-Code layout - save it
+            SaveGCodeLayout();
+        } else if (hasMachineManager && hasConsole) {
+            // Likely in Connection layout - save it
+            SaveConnectionFirstLayout();
+        }
+        // If we can't determine context, don't save to avoid corrupting layouts
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to save current layout based on context: " + std::string(e.what()));
     }
 }

@@ -7,30 +7,18 @@
 
 #include <string>
 
+// Include build-time generated version information
+#include "generated_version.h"
+
 namespace FluidNC {
 namespace Version {
 
-// Version information (populated by CMake from Git tags)
+// Version information (populated at build time from Git tags)
 constexpr const char* APP_NAME = "FluidNC gCode Sender";
 
-// Use CMake-provided version information (REQUIRED - no fallbacks)
-#ifndef VERSION_MAJOR
-#error "VERSION_MAJOR not defined! CMake version extraction failed."
-#endif
-#ifndef VERSION_MINOR
-#error "VERSION_MINOR not defined! CMake version extraction failed."
-#endif
-#ifndef VERSION_PATCH
-#error "VERSION_PATCH not defined! CMake version extraction failed."
-#endif
-#ifndef VERSION_STRING
-#error "VERSION_STRING not defined! CMake version extraction failed."
-#endif
-
-constexpr const char* VERSION_MAJOR_STR = VERSION_MAJOR;
-constexpr const char* VERSION_MINOR_STR = VERSION_MINOR;
-constexpr const char* VERSION_PATCH_STR = VERSION_PATCH;
-constexpr const char* VERSION_STRING_STR = VERSION_STRING;
+// Version constants are now defined in generated_version.h
+// The defines from generated_version.h are used directly in code
+// VERSION_STRING_STR is available as a macro from generated_version.h
 
 // Repository information
 constexpr const char* REPOSITORY_URL = "https://github.com/DanAla/FluidNC_gCodeSender";
@@ -53,9 +41,7 @@ constexpr const char* ISSUES_URL = "https://github.com/DanAla/FluidNC_gCodeSende
 #error "GIT_DESCRIBE not defined! CMake Git extraction failed."
 #endif
 
-#ifndef GIT_TAG
-#error "GIT_TAG not defined! CMake Git tag extraction failed."
-#endif
+// GIT_TAG is now defined in generated_version.h
 
 #ifndef BUILD_TYPE
 #ifdef _DEBUG

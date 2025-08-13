@@ -147,7 +147,7 @@ AnalyticsData UpdateChecker::CreateAnalyticsData() {
 }
 
 wxString UpdateChecker::GetCurrentVersion() {
-    return wxString(FluidNC::Version::VERSION_STRING_STR);
+    return wxString(VERSION_STRING_STR);
 }
 
 wxString UpdateChecker::GetOperatingSystemInfo() {

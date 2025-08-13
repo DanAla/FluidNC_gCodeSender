@@ -13,12 +13,8 @@ namespace Version {
 std::string GetFullVersionString() {
     std::ostringstream oss;
     
-    // Use CMake version if available, fallback to header constants
-    #ifdef VERSION_STRING
-        oss << APP_NAME << " v" << VERSION_STRING;
-    #else
-        oss << APP_NAME << " v" << VERSION_STRING_STR;
-    #endif
+    // VERSION_STRING is always available from generated_version.h
+    oss << APP_NAME << " v" << VERSION_STRING;
     
     // Add build type if debug
     if (std::string(BUILD_CONFIG) == "Debug") {

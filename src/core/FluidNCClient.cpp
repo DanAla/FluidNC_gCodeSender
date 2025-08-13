@@ -256,8 +256,43 @@ void FluidNCClient::connect()
             continue;
         }
         
-        // Connection successful
+        // Connection successful - enable TCP keepalive for proactive connection monitoring
         m_connected = true;
+        
+        // Configure TCP keepalive to detect dead connections
+        int keepalive = 1;
+#ifdef _WIN32
+        // Windows keepalive configuration
+        if (setsockopt(m_socket, SOL_SOCKET, SO_KEEPALIVE, (char*)&keepalive, sizeof(keepalive)) == SOCKET_ERROR) {
+            std::cerr << "Warning: Failed to enable TCP keepalive" << std::endl;
+        } else {
+            // Configure keepalive timing: start after 30s idle, probe every 10s, give up after 3 failures
+            DWORD dwBytesRet = 0;
+            tcp_keepalive keepalive_vals = { 
+                1,      // enable keepalive
+                30000,  // idle time before first probe (30 seconds)
+                10000   // interval between probes (10 seconds)
+            };
+            if (WSAIoctl(m_socket, SIO_KEEPALIVE_VALS, &keepalive_vals, sizeof(keepalive_vals), 
+                        NULL, 0, &dwBytesRet, NULL, NULL) == SOCKET_ERROR) {
+                std::cerr << "Warning: Failed to configure TCP keepalive parameters" << std::endl;
+            }
+        }
+#else
+        // Linux/Unix keepalive configuration
+        if (setsockopt(m_socket, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive)) == 0) {
+            int keepidle = 30;   // Start keepalive after 30 seconds of inactivity
+            int keepintvl = 10;  // Send keepalive probes every 10 seconds  
+            int keepcnt = 3;     // Give up after 3 failed probes
+            
+            setsockopt(m_socket, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
+            setsockopt(m_socket, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
+            setsockopt(m_socket, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt));
+        } else {
+            std::cerr << "Warning: Failed to enable TCP keepalive" << std::endl;
+        }
+#endif
+        
         if (m_onConnect) {
             m_onConnect();
         }

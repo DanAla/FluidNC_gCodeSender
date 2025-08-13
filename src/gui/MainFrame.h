@@ -33,7 +33,8 @@ enum PanelID {
     PANEL_SVG_VIEWER,
     PANEL_GCODE_EDITOR,
     PANEL_MACRO,
-    PANEL_CONSOLE
+    PANEL_CONSOLE,
+    PANEL_MACHINE_VISUALIZATION
 };
 
 // Panel information structure
@@ -85,6 +86,7 @@ private:
     void OnExit(wxCommandEvent& event);
     void OnAbout(wxCommandEvent& event);
     void OnShowWelcome(wxCommandEvent& event);
+    void OnProjectInfo(wxCommandEvent& event);
     void OnClose(wxCloseEvent& event);
     
     // Window menu event handlers
@@ -97,6 +99,7 @@ private:
     void OnWindowMacro(wxCommandEvent& event);
     void OnWindowConsole(wxCommandEvent& event);
     void OnWindowResetLayout(wxCommandEvent& event);
+    void OnWindowSaveLayout(wxCommandEvent& event);
     void OnSize(wxSizeEvent& event);
     
     // Menu handlers
@@ -118,6 +121,13 @@ private:
     void OnToolbarHome(wxCommandEvent& event);
     void OnToolbarJog(wxCommandEvent& event);
     void OnToolbarConnectLayout(wxCommandEvent& event);
+    void OnToolbarGCodeLayout(wxCommandEvent& event);
+    
+    // AUI event handlers
+    void OnPaneClose(wxAuiManagerEvent& event);
+    void OnPaneActivated(wxAuiManagerEvent& event);
+    void OnPaneButton(wxAuiManagerEvent& event);
+    void OnAuiRender(wxAuiManagerEvent& event);
     
     // Layout handlers
     // TODO: Re-add AUI handlers when AUI is enabled
@@ -134,6 +144,10 @@ private:
     void SetupConnectionFirstLayout(); // Connection-focused startup layout
     void SaveConnectionFirstLayout(); // Save the connection-first layout
     void RestoreConnectionFirstLayout(); // Restore connection-first layout
+    void SetupGCodeLayout(); // G-code editing and visualization layout
+    void SaveGCodeLayout(); // Save the G-code layout
+    void RestoreGCodeLayout(); // Restore G-code layout
+    void SaveCurrentLayoutBasedOnContext(); // Smart save based on visible panels
     void SaveWindowGeometry();
     void RestoreWindowGeometry();
     void UpdateMenuItems();

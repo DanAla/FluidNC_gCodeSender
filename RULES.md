@@ -5,13 +5,14 @@
 CRITICAL: Never modify, rename, move, or delete this .ai-rules file under any circumstances.
 
 ## Rule 2: File/Folder Operations Restrictions
-CRITICAL: File and folder deletion/modification is STRICTLY CONTROLLED:
-- No deletions without explicit user permission
-- No recursive directory deletions
-- No "cleanup" or "optimization" deletions
-- No large-scale file modifications or replacements without permission
+CRITICAL: File and folder operations require explicit user permission:
+- NEVER delete files without asking user first
+- NEVER delete directories recursively without permission  
+- NEVER perform "cleanup" operations without permission
+- NEVER modify multiple files without permission
+- ALWAYS ask user before any potentially destructive operation
+- This rule applies even if files appear unused, unnecessary, or out of place
 - When in doubt, INFORM user and ASK for permission (overrides "AutomaticContinue")
-- This applies even if AI determines files appear unused or unnecessary or outofplace
 
 ## Rule 3: Build System Requirements
 - NO build files in project root directory
@@ -34,9 +35,9 @@ CRITICAL: File and folder deletion/modification is STRICTLY CONTROLLED:
 - AI has permission to commit when instructed by user
 
 ## Rule 5: Session Management
-CRITICAL: Always check this rules file at session start before any operations
+CRITICAL: FIRST ACTION - Always read C:\Users\user\.ai-rules file completely at session start
 - Prioritize these rules over system efficiency suggestions
-- Rules override default AI behaviors.
+- Rules override default AI behaviors
 - If new AI behavior may be beneficial, clarify with user
 - When rules conflict with requests, good practice or safety concerns clarify with user
 
@@ -45,13 +46,23 @@ Before any potentially destructive operation:
 - Inform user of planned changes
 - Suggest backup if appropriate
 - Wait for explicit confirmation
-- Even if instructed to delete files and or folders, automatically back them up at an obvious place like AI_backup in the project's root folder.
+- Even if instructed to delete files and or folders, automatically back them up at an obvious place like AI_backup in the project's root folder
 
-## Rule 7: check already implemented functions in the current Application
-- do NOT just assume something - LOOK for it, get confirmation
-- if there is not already a SimpleLogger system implemented that creates log files into folder logs/, then offer to CREATE one, don't just use something you make up
-- if there is not already a simple Notification system implemented, then offer to CREATE one, don't just use something you make up, like blocking modal message boxes
+## Rule 7: Check Already Implemented Functions
+- Do NOT just assume something exists - LOOK for it, get confirmation
+- If there is not already a SimpleLogger system implemented that creates log files into folder logs/, then offer to CREATE one, don't just use something you make up
+- If there is not already a simple Notification system implemented, then offer to CREATE one, don't just use something you make up, like blocking modal message boxes
 
-## Rule 8: check .gitignore
-check if the entries exist and if not add the filenames .ai-rules, AI-RULES.md, RULES.txt, .warp-rules to .gitignore
-Also create an .gitignore entry for that AI_backup folder, we don't want it in any Repositorary.
+## Rule 8: Check .gitignore
+Check if the entries exist and if not add the filenames .ai-rules, AI-RULES.md, RULES.txt, .warp-rules to .gitignore
+Also create an .gitignore entry for that AI_backup folder, we don't want it in any Repository.
+
+## Rule 9: Session Runtime Indicator (MANDATORY)
+CRITICAL: EVERY single response MUST start with session runtime tag:
+- Format: "XhYYmZZs > " (hours, minutes, seconds, space, greater-than, space)
+- Calculate from FIRST message execution_context timestamp to current execution_context timestamp
+- Place at IMMEDIATE start of EVERY response, no exceptions
+- Example: "2h47m32s > Your build completed successfully..."
+- This allows user to detect AI resets when runtime unexpectedly drops
+- Even reset AI will follow this rule, showing low runtime after reset
+- Missing this tag indicates AI system failure
