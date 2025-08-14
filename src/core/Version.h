@@ -17,8 +17,7 @@ namespace Version {
 constexpr const char* APP_NAME = "FluidNC gCode Sender";
 
 // Version constants are now defined in generated_version.h
-// The defines from generated_version.h are used directly in code
-// VERSION_STRING_STR is available as a macro from generated_version.h
+// These are the single source of truth for versioning.
 
 // Repository information
 constexpr const char* REPOSITORY_URL = "https://github.com/DanAla/FluidNC_gCodeSender";
@@ -37,11 +36,9 @@ constexpr const char* ISSUES_URL = "https://github.com/DanAla/FluidNC_gCodeSende
 #error "GIT_BRANCH not defined! CMake Git extraction failed."
 #endif
 
-#ifndef GIT_DESCRIBE
-#error "GIT_DESCRIBE not defined! CMake Git extraction failed."
+#ifndef GIT_TAG
+#error "GIT_TAG not defined! CMake Git extraction failed."
 #endif
-
-// GIT_TAG is now defined in generated_version.h
 
 #ifndef BUILD_TYPE
 #ifdef _DEBUG
@@ -75,7 +72,7 @@ constexpr const char* ISSUES_URL = "https://github.com/DanAla/FluidNC_gCodeSende
 constexpr const char* BUILD_INFO = BUILD_TIMESTAMP;
 constexpr const char* COMMIT_HASH = GIT_COMMIT_HASH;
 constexpr const char* BRANCH = GIT_BRANCH;
-constexpr const char* DESCRIBE = GIT_DESCRIBE;
+constexpr const char* DESCRIBE = GIT_TAG;
 constexpr const char* BUILD_CONFIG = BUILD_TYPE;
 constexpr const char* GCC_VERSION = COMPILER_VERSION;
 constexpr const char* CMAKE_VER = CMAKE_VERSION_STRING;

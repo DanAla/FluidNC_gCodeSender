@@ -27,7 +27,7 @@ std::string GetFullVersionString() {
 std::string GetBuildInfoString() {
     std::ostringstream oss;
     oss << "Built: " << BUILD_INFO << "\n";
-    oss << "Git Version: " << DESCRIBE << "\n";
+    oss << "Git Version: " << GIT_TAG << "\n";
     oss << BuildCounter::GetBuildCountString() << "\n";
     oss << "Platform: " << PLATFORM << " " << ARCHITECTURE << "\n";
     oss << "Compiler: " << COMPILER << " " << GCC_VERSION << "\n";
