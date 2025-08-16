@@ -4,6 +4,7 @@
  */
 
 #include "ErrorHandler.h"
+#include "StringUtils.h"
 #include <wx/clipbrd.h>
 #include <wx/datetime.h>
 #include <wx/textctrl.h>
@@ -55,11 +56,15 @@ void ErrorHandler::Initialize()
 
 void ErrorHandler::ReportError(const wxString& title, const wxString& message, const wxString& details)
 {
-    wxString timestamp = wxDateTime::Now().Format("%Y-%m-%d %H:%M:%S");
-    wxString fullError = wxString::Format("[%s] ERROR: %s - %s", timestamp, title, message);
+    // Ensure all strings are ASCII-safe
+    wxString safeTitle = TO_WX(TO_ASCII(title));
+    wxString safeMessage = TO_WX(TO_ASCII(message));
+    wxString safeDetails = TO_WX(TO_ASCII(details));
+wxString timestamp = wxDateTime::Now().Format("%Y-%m-%d %H:%M:%S");
+    wxString fullError = wxString::Format("[%s] ERROR: %s - %s", timestamp, safeTitle, safeMessage);
     
-    if (!details.IsEmpty()) {
-        fullError += "\nDetails: " + details;
+if (!safeDetails.IsEmpty()) {
+        fullError += "\nDetails: " + safeDetails;
     }
     
     // Store error
@@ -74,11 +79,15 @@ void ErrorHandler::ReportError(const wxString& title, const wxString& message, c
 
 void ErrorHandler::ReportWarning(const wxString& title, const wxString& message, const wxString& details)
 {
+    // Ensure all strings are ASCII-safe
+    wxString safeTitle = TO_WX(TO_ASCII(title));
+    wxString safeMessage = TO_WX(TO_ASCII(message));
+    wxString safeDetails = TO_WX(TO_ASCII(details));
     wxString timestamp = wxDateTime::Now().Format("%Y-%m-%d %H:%M:%S");
-    wxString fullError = wxString::Format("[%s] WARNING: %s - %s", timestamp, title, message);
+wxString fullError = wxString::Format("[%s] WARNING: %s - %s", timestamp, safeTitle, safeMessage);
     
-    if (!details.IsEmpty()) {
-        fullError += "\nDetails: " + details;
+if (!safeDetails.IsEmpty()) {
+        fullError += "\nDetails: " + safeDetails;
     }
     
     m_recentErrors.push_back(fullError);
@@ -86,16 +95,20 @@ void ErrorHandler::ReportWarning(const wxString& title, const wxString& message,
         m_recentErrors.erase(m_recentErrors.begin());
     }
     
-    ShowErrorDialog(title, message, details, wxICON_WARNING);
+ShowErrorDialog(safeTitle, safeMessage, safeDetails, wxICON_WARNING);
 }
 
 void ErrorHandler::ReportInfo(const wxString& title, const wxString& message, const wxString& details)
 {
+    // Ensure all strings are ASCII-safe
+    wxString safeTitle = TO_WX(TO_ASCII(title));
+    wxString safeMessage = TO_WX(TO_ASCII(message));
+    wxString safeDetails = TO_WX(TO_ASCII(details));
     wxString timestamp = wxDateTime::Now().Format("%Y-%m-%d %H:%M:%S");
-    wxString fullError = wxString::Format("[%s] INFO: %s - %s", timestamp, title, message);
+wxString fullError = wxString::Format("[%s] INFO: %s - %s", timestamp, safeTitle, safeMessage);
     
-    if (!details.IsEmpty()) {
-        fullError += "\nDetails: " + details;
+if (!safeDetails.IsEmpty()) {
+        fullError += "\nDetails: " + safeDetails;
     }
     
     m_recentErrors.push_back(fullError);
@@ -103,7 +116,7 @@ void ErrorHandler::ReportInfo(const wxString& title, const wxString& message, co
         m_recentErrors.erase(m_recentErrors.begin());
     }
     
-    ShowErrorDialog(title, message, details, wxICON_INFORMATION);
+ShowErrorDialog(safeTitle, safeMessage, safeDetails, wxICON_INFORMATION);
 }
 
 void ErrorHandler::EnableAssertionHandling(bool enable)
@@ -187,7 +200,7 @@ void CustomLogTarget::DoLogRecord(wxLogLevel level, const wxString& msg, const w
 #ifdef __WXDEBUG__
     // Only log to console, don't call parent (which could cause recursion)
     if (wxLog::GetActiveTarget() != this) {
-        fprintf(stderr, "[%s] %s\n", levelStr.c_str(), msg.c_str());
+fprintf(stderr, "[%s] %s\n", TO_ASCII(levelStr).c_str(), TO_ASCII(msg).c_str());
     }
 #endif
 }
@@ -196,19 +209,24 @@ void CustomLogTarget::DoLogRecord(wxLogLevel level, const wxString& msg, const w
 void CustomAssertHandler::HandleAssertion(const wxString& file, int line, const wxString& func,
                                          const wxString& cond, const wxString& msg)
 {
+    // Ensure all strings are ASCII-safe
+    wxString safeFile = TO_WX(TO_ASCII(file));
+    wxString safeFunc = TO_WX(TO_ASCII(func));
+    wxString safeCond = TO_WX(TO_ASCII(cond));
+    wxString safeMsg = TO_WX(TO_ASCII(msg));
     if (!ErrorHandler::Instance().m_assertionHandlingEnabled) {
         return;
     }
     
-    wxString title = "wxWidgets Assertion Failed";
-    wxString message = wxString::Format("Assertion '%s' failed", cond);
+wxString title = "wxWidgets Assertion Failed";
+    wxString message = wxString::Format("Assertion '%s' failed", safeCond);
     
-    if (!msg.IsEmpty()) {
-        message += ":\n" + msg;
+if (!safeMsg.IsEmpty()) {
+        message += ":\n" + safeMsg;
     }
     
-    wxString details = wxString::Format("File: %s\nLine: %d\nFunction: %s\n\nCondition: %s",
-                                       file, line, func, cond);
+wxString details = wxString::Format("File: %s\nLine: %d\nFunction: %s\n\nCondition: %s",
+                                       safeFile, line, safeFunc, safeCond);
     
     // Report as warning instead of error to avoid being too alarming
     ErrorHandler::Instance().ShowErrorDialog(title, message, details, wxICON_WARNING);
@@ -220,12 +238,17 @@ ErrorDialog::ErrorDialog(wxWindow* parent, const wxString& title, const wxString
     : wxDialog(parent, wxID_ANY, title, wxDefaultPosition, wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
 {
-    CreateControls(message, details, iconType);
+    // Ensure all strings are ASCII-safe
+    wxString safeTitle = TO_WX(TO_ASCII(title));
+    wxString safeMessage = TO_WX(TO_ASCII(message));
+    wxString safeDetails = TO_WX(TO_ASCII(details));
+
+    CreateControls(safeMessage, safeDetails, iconType);
     
     // Prepare full error text for clipboard
-    m_fullErrorText = wxString::Format("Title: %s\n\nMessage:\n%s", title, message);
-    if (!details.IsEmpty()) {
-        m_fullErrorText += "\n\nDetails:\n" + details;
+    m_fullErrorText = wxString::Format("Title: %s\n\nMessage:\n%s", safeTitle, safeMessage);
+    if (!safeDetails.IsEmpty()) {
+        m_fullErrorText += "\n\nDetails:\n" + safeDetails;
     }
     m_fullErrorText += "\n\nTimestamp: " + wxDateTime::Now().Format("%Y-%m-%d %H:%M:%S");
 }
@@ -270,7 +293,7 @@ void ErrorDialog::CreateControls(const wxString& message, const wxString& detail
     // Buttons
     wxBoxSizer* buttonSizer = new wxBoxSizer(wxHORIZONTAL);
     
-    wxButton* copyBtn = new wxButton(this, ID_COPY_TO_CLIPBOARD, "Copy && Close");
+    wxButton* copyBtn = new wxButton(this, ID_COPY_TO_CLIPBOARD, "Copy and Close");
     // Make the copy button wider to accommodate larger confirmation text
     copyBtn->SetMinSize(wxSize(240, -1));
     

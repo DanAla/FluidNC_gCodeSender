@@ -13,9 +13,19 @@
 #include <string>
 #include <map>
 
-// Forward declarations for our new comprehensive dialog
-class ComprehensiveEditMachineDialog;
-struct EnhancedMachineConfig;
+// Control IDs for MachineManagerPanel
+enum {
+    ID_MACHINE_LIST = wxID_HIGHEST + 1,
+    ID_SCAN_NETWORK,
+    ID_ADD_MACHINE,
+    ID_EDIT_MACHINE,
+    ID_REMOVE_MACHINE,
+    ID_CONNECT,
+    ID_DISCONNECT,
+    ID_MM_TEST_CONNECTION,
+    ID_MM_IMPORT_CONFIG,
+    ID_MM_EXPORT_CONFIG
+};
 
 /**
  * Machine Manager Panel - manages machine configurations and connections
@@ -39,19 +49,6 @@ public:
         bool connected;
         std::string lastConnected;
         bool autoConnect;
-        
-        // Machine-discovered capabilities (populated when connected)
-        struct MachineCapabilities {
-            float workspaceX = 0.0f, workspaceY = 0.0f, workspaceZ = 0.0f;  // Max travel distances
-            float maxFeedRate = 1000.0f;
-            float maxSpindleRPM = 24000.0f;
-            int numAxes = 3;
-            bool hasHoming = false;
-            bool hasProbe = false;
-            std::string firmwareVersion = "";
-            std::string buildInfo = "";
-            bool capabilitiesValid = false;  // True when data has been queried from machine
-        } capabilities;
     };
     
     MachineManagerPanel(wxWindow* parent);
@@ -64,11 +61,6 @@ public:
     // Auto-connect functionality
     void AttemptAutoConnect();
     
-    // Machine capability discovery
-    void QueryMachineCapabilities(const std::string& machineId);
-    void UpdateMachineCapabilities(const std::string& machineId, const MachineConfig::MachineCapabilities& capabilities);
-    void NotifyVisualizationPanel(const std::string& machineId);
-    
     // Data access
     const std::vector<MachineConfig>& GetMachines() const { return m_machines; }
 
@@ -78,7 +70,6 @@ private:
     void OnMachineActivated(wxListEvent& event);
     void OnAddMachine(wxCommandEvent& event);
     void OnEditMachine(wxCommandEvent& event);
-    void OnAdvancedSettings(wxCommandEvent& event);  // NEW: Advanced machine settings
     void OnRemoveMachine(wxCommandEvent& event);
     void OnConnect(wxCommandEvent& event);
     void OnDisconnect(wxCommandEvent& event);
@@ -116,7 +107,6 @@ private:
     wxButton* m_scanNetworkBtn;
     wxButton* m_addBtn;
     wxButton* m_editBtn;
-    wxButton* m_advancedBtn;  // NEW: Advanced settings button
     wxButton* m_removeBtn;
     wxButton* m_importBtn;
     wxButton* m_exportBtn;

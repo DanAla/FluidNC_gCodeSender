@@ -1,9 +1,3 @@
-/**
- * gui/MainFrame.h
- * Professional MDI main frame with flexible docking, toolbars, status bars
- * Supports multiple machines, dynamic panel management, and full layout persistence
- */
-
 #pragma once
 
 #include <wx/wx.h>
@@ -15,15 +9,8 @@
 #include <vector>
 
 class StateManager;
-class ConnectionManager;
-class DROPanel;
-class JogPanel;
-class SettingsDialog;
-class MachineManagerPanel;
-class SVGViewer;
-class GCodeEditor;
-class MacroPanel;
 class ConsolePanel;
+class MachineManagerPanel; // Forward declare to resolve circular dependency
 
 // Panel IDs for consistent identification
 enum PanelID {
@@ -45,20 +32,10 @@ struct PanelInfo {
     PanelID id;
     bool canClose = true;
     bool defaultVisible = true;
-    wxString defaultPosition = "center";  // left, right, top, bottom, center
+    wxString defaultPosition = "center";
     wxSize defaultSize = wxSize(300, 200);
 };
 
-/**
- * Professional CNC control application main frame
- * Features:
- * - Flexible docking with AUI
- * - Multiple toolbar support
- * - Multi-field status bar
- * - Menu-driven panel visibility
- * - Complete layout persistence
- * - Multi-machine support
- */
 class MainFrame : public wxFrame
 {
 public:
@@ -74,16 +51,16 @@ public:
     void LoadSavedLayout();
     
     // Panel access
-    class ConsolePanel* GetConsolePanel() const;
+    ConsolePanel* GetConsolePanel() const;
     
     // Machine status updates
     void UpdateMachineStatus(const std::string& machineId, const std::string& status);
     void UpdateDRO(const std::string& machineId, const std::vector<float>& mpos, const std::vector<float>& wpos);
     
-    // UNIVERSAL connection status handler - THE ONLY method for connection updates
-    void HandleConnectionStatusChange(const std::string& machineId, bool connected);
+    // UNIVERSAL connection status handler
+    void HandleConnectionStatusChange(const std::string& machineId, bool connected, bool isAutoConnect);
     
-    // Legacy method - kept for compatibility but redirects to HandleConnectionStatusChange
+    // Legacy method - redirects to HandleConnectionStatusChange
     void UpdateConnectionStatus(const std::string& machineId, bool connected);
     
 private:
@@ -93,6 +70,8 @@ private:
     void OnShowWelcome(wxCommandEvent& event);
     void OnProjectInfo(wxCommandEvent& event);
     void OnClose(wxCloseEvent& event);
+    void OnTestErrorHandler(wxCommandEvent& event);
+    void OnTestNotificationSystem(wxCommandEvent& event);
     
     // Window menu event handlers
     void OnWindowDRO(wxCommandEvent& event);
@@ -105,26 +84,8 @@ private:
     void OnWindowConsole(wxCommandEvent& event);
     void OnWindowResetLayout(wxCommandEvent& event);
     void OnWindowSaveLayout(wxCommandEvent& event);
-    void OnSize(wxSizeEvent& event);
-    
-    // Menu handlers
-    void OnNewMachine(wxCommandEvent& event);
-    void OnEditMachines(wxCommandEvent& event);
-    void OnConnectAll(wxCommandEvent& event);
-    void OnDisconnectAll(wxCommandEvent& event);
-    void OnEmergencyStop(wxCommandEvent& event);
-    void OnSettings(wxCommandEvent& event);
-    void OnTogglePanel(wxCommandEvent& event);
-    void OnResetLayout(wxCommandEvent& event);
-    void OnTestErrorHandler(wxCommandEvent& event);
-    void OnTestNotificationSystem(wxCommandEvent& event);
     
     // Toolbar handlers
-    void OnToolbarConnect(wxCommandEvent& event);
-    void OnToolbarDisconnect(wxCommandEvent& event);
-    void OnToolbarEmergencyStop(wxCommandEvent& event);
-    void OnToolbarHome(wxCommandEvent& event);
-    void OnToolbarJog(wxCommandEvent& event);
     void OnToolbarConnectLayout(wxCommandEvent& event);
     void OnToolbarGCodeLayout(wxCommandEvent& event);
     
@@ -133,9 +94,6 @@ private:
     void OnPaneActivated(wxAuiManagerEvent& event);
     void OnPaneButton(wxAuiManagerEvent& event);
     void OnAuiRender(wxAuiManagerEvent& event);
-    
-    // Layout handlers
-    // TODO: Re-add AUI handlers when AUI is enabled
     
     // UI Creation
     void CreateMenuBar();
@@ -146,34 +104,30 @@ private:
     
     // Layout management
     void CreateDefaultLayout();
-    void SetupConnectionFirstLayout(); // Connection-focused startup layout
-    void SaveConnectionFirstLayout(); // Save the connection-first layout
-    void RestoreConnectionFirstLayout(); // Restore connection-first layout
-    void SetupGCodeLayout(); // G-code editing and visualization layout
-    void SaveGCodeLayout(); // Save the G-code layout
-    void RestoreGCodeLayout(); // Restore G-code layout
-    void SaveCurrentLayoutBasedOnContext(); // Smart save based on visible panels
+    void SetupConnectionFirstLayout();
+    void SaveConnectionFirstLayout();
+    void RestoreConnectionFirstLayout();
+    void SetupGCodeLayout();
+    void SaveGCodeLayout();
+    void RestoreGCodeLayout();
+    void SaveCurrentLayoutBasedOnContext();
     void SaveWindowGeometry();
     void RestoreWindowGeometry();
     void UpdateMenuItems();
     void UpdateToolbarStates();
     void UpdateStatusBar();
-    void UpdateStatusBarFieldWidths();
-    
+    void UpdateStatusBarFieldWidths(); // Added missing declaration
+
     // Utility functions
     PanelInfo* FindPanelInfo(PanelID id);
     PanelInfo* FindPanelInfo(wxPanel* panel);
-    void AddPanelToAui(PanelInfo& panelInfo);
+    wxAuiPaneInfo AddPanelToAui(PanelInfo& panelInfo);
     
     // Communication setup
     void SetupCommunicationCallbacks();
     
     // G-Code panel integration
     void ConnectGCodePanels();
-    
-    // Core components - temporarily disabled
-    // StateManager& m_stateManager;
-    // std::unique_ptr<ConnectionManager> m_connectionManager;
     
     // AUI Manager for docking
     wxAuiManager m_auiManager;
@@ -195,14 +149,6 @@ private:
     
     // Panels storage
     std::vector<PanelInfo> m_panels;
-    
-    // Menu references for dynamic updates
-    wxMenu* m_viewMenu;
-    wxMenu* m_machineMenu;
-    std::map<PanelID, wxMenuItem*> m_panelMenuItems;
-    
-    // Current machine context (simplified)
-    // std::string m_currentMachine;
     
     // Connection state tracking
     bool m_hasMachineConnected = false;

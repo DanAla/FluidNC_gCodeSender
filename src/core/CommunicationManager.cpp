@@ -5,6 +5,7 @@
 
 #include "CommunicationManager.h"
 #include "SimpleLogger.h"
+#include "ErrorHandler.h"
 
 CommunicationManager& CommunicationManager::Instance()
 {
@@ -21,55 +22,94 @@ bool CommunicationManager::ConnectMachine(const std::string& machineId, const st
 {
     std::lock_guard<std::mutex> lock(m_connectionsMutex);
     
-    // Check if already connected
-    auto it = m_connections.find(machineId);
-    if (it != m_connections.end() && it->second->connected.load()) {
-        LOG_ERROR("Machine " + machineId + " is already connected");
-        return true;
-    }
-    
-    // Create new connection
     try {
+        // Check if already connected
+        auto it = m_connections.find(machineId);
+        if (it != m_connections.end() && it->second->connected.load()) {
+            LOG_INFO("Machine " + machineId + " is already connected");
+            ErrorHandler::Instance().ReportWarning(
+                "Connection Warning",
+                "Machine " + machineId + " is already connected",
+                "Host: " + host + "\nPort: " + std::to_string(port)
+            );
+            return true;
+        }
+        
+        LOG_INFO("Creating new connection for machine: " + machineId);
+        
+        // Create new connection
         auto connectionInfo = std::make_unique<ConnectionInfo>();
         connectionInfo->machineId = machineId;
         connectionInfo->host = host;
         connectionInfo->port = port;
         connectionInfo->connected = false;
         
-        // Create FluidNC client with DRO callback
-        connectionInfo->client = std::make_unique<FluidNCClient>(
-            host, port,
-            [this, machineId](const std::vector<float>& mpos, const std::vector<float>& wpos) {
-                OnDROUpdate(machineId, mpos, wpos);
-            }
-        );
-        
-        // Set connection callbacks
-        connectionInfo->client->setOnConnectCallback([this, machineId]() {
-            OnConnect(machineId);
-        });
-        
-        connectionInfo->client->setOnDisconnectCallback([this, machineId]() {
-            OnDisconnect(machineId);
-        });
-        
-        // Set response callback
-        connectionInfo->client->setResponseCallback([this, machineId](const std::string& response) {
-            OnResponse(machineId, response);
-        });
-        
-        // Start the client (this will attempt connection)
-        connectionInfo->client->start();
-        
-        // Store the connection
+        // Store the connection info first so callbacks can access it
         m_connections[machineId] = std::move(connectionInfo);
         
-        LOG_INFO("Started connection attempt for machine: " + machineId + " (" + host + ":" + std::to_string(port) + ")");
-        
-        return true;
+        try {
+            // Create FluidNC client with DRO callback
+            m_connections[machineId]->client = std::make_unique<FluidNCClient>(
+                host, port,
+                [this, machineId](const std::vector<float>& mpos, const std::vector<float>& wpos) {
+                    OnDROUpdate(machineId, mpos, wpos);
+                }
+            );
+            
+            // Set connection callbacks
+            m_connections[machineId]->client->setOnConnectCallback([this, machineId]() {
+                OnConnect(machineId);
+            });
+            
+            m_connections[machineId]->client->setOnDisconnectCallback([this, machineId]() {
+                OnDisconnect(machineId);
+                
+                std::lock_guard<std::mutex> lock(m_connectionsMutex);
+                auto it = m_connections.find(machineId);
+                if (it != m_connections.end()) {
+                    ErrorHandler::Instance().ReportWarning(
+                        "Connection Lost",
+                        "Lost connection to machine " + machineId,
+                        "The machine may be offline or experiencing network issues.\n\n" 
+                        "Host: " + it->second->host + "\n" 
+                        "Port: " + std::to_string(it->second->port)
+                    );
+                }
+            });
+            
+            // Set response callback
+            m_connections[machineId]->client->setResponseCallback([this, machineId](const std::string& response) {
+                OnResponse(machineId, response);
+            });
+            
+            LOG_INFO("Starting connection attempt for machine: " + machineId);
+            
+            // Start the client (this will attempt connection)
+            m_connections[machineId]->client->start();
+            
+            LOG_INFO("Connection attempt started for machine: " + machineId + " (" + host + ":" + std::to_string(port) + ")");
+            
+            return true;
+            
+        } catch (const std::exception& e) {
+            // Clean up the connection info on failure
+            m_connections.erase(machineId);
+            throw; // Re-throw to be caught by outer try-catch
+        }
         
     } catch (const std::exception& e) {
-        LOG_ERROR("Failed to create connection for machine " + machineId + ": " + e.what());
+        ErrorHandler::Instance().ReportError(
+            "Connection Error",
+            "Failed to connect to machine " + machineId,
+            "Host: " + host + "\n" 
+            "Port: " + std::to_string(port) + "\n\n" 
+            "Error: " + std::string(e.what()) + "\n\n" 
+            "The machine may be offline or unreachable.\n\n" 
+            "Please check:\n" 
+            "1. Machine is powered on\n" 
+            "2. Network connection is stable\n" 
+            "3. IP address and port are correct"
+        );
         return false;
     }
 }
@@ -181,51 +221,113 @@ void CommunicationManager::DisconnectAll()
 
 void CommunicationManager::OnConnect(const std::string& machineId)
 {
+    LOG_INFO("OnConnect begin for machine: " + machineId);
+    
+    bool shouldNotify = false;
     {
         std::lock_guard<std::mutex> lock(m_connectionsMutex);
         auto it = m_connections.find(machineId);
         if (it != m_connections.end()) {
-            it->second->connected = true;
+            if (!it->second->connected.load()) {
+                it->second->connected = true;
+                shouldNotify = true;
+            }
         }
+    }
+    
+    if (!shouldNotify) {
+        LOG_INFO("OnConnect - Machine " + machineId + " already marked as connected, skipping notifications");
+        return;
     }
     
     LOG_INFO("Machine connected: " + machineId);
     
     // Send initial status query to get machine info
+    // Delay the initial query slightly to ensure connection is stable
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     if (SendCommand(machineId, "?")) {
         LOG_INFO("Sent initial status query to " + machineId);
     }
     
-    // Notify GUI - callbacks must handle thread safety
-    if (m_connectionStatusCallback) {
-        m_connectionStatusCallback(machineId, true);
+    // Store callbacks locally to prevent them changing during execution
+    ConnectionStatusCallback statusCallback;
+    MessageCallback msgCallback;
+    {
+        std::lock_guard<std::mutex> lock(m_connectionsMutex);
+        statusCallback = m_connectionStatusCallback;
+        msgCallback = m_messageCallback;
     }
     
-    if (m_messageCallback) {
-        m_messageCallback(machineId, "Connected to machine: " + machineId, "INFO");
+    // Execute callbacks outside the lock
+    if (statusCallback) {
+        try {
+            statusCallback(machineId, true);
+        } catch (const std::exception& e) {
+            LOG_ERROR("Exception in connection status callback: " + std::string(e.what()));
+        }
     }
+    
+    if (msgCallback) {
+        try {
+            msgCallback(machineId, "Connected to machine: " + machineId, "INFO");
+        } catch (const std::exception& e) {
+            LOG_ERROR("Exception in message callback: " + std::string(e.what()));
+        }
+    }
+    
+    LOG_INFO("OnConnect complete for machine: " + machineId);
 }
 
 void CommunicationManager::OnDisconnect(const std::string& machineId)
 {
+    LOG_INFO("OnDisconnect begin for machine: " + machineId);
+    
+    bool shouldNotify = false;
     {
         std::lock_guard<std::mutex> lock(m_connectionsMutex);
         auto it = m_connections.find(machineId);
         if (it != m_connections.end()) {
-            it->second->connected = false;
+            if (it->second->connected.load()) {
+                it->second->connected = false;
+                shouldNotify = true;
+            }
         }
+    }
+    
+    if (!shouldNotify) {
+        LOG_INFO("OnDisconnect - Machine " + machineId + " already marked as disconnected, skipping notifications");
+        return;
     }
     
     LOG_INFO("Machine disconnected: " + machineId);
     
-    // Notify GUI - callbacks must handle thread safety
-    if (m_connectionStatusCallback) {
-        m_connectionStatusCallback(machineId, false);
+    // Store callbacks locally to prevent them changing during execution
+    ConnectionStatusCallback statusCallback;
+    MessageCallback msgCallback;
+    {
+        std::lock_guard<std::mutex> lock(m_connectionsMutex);
+        statusCallback = m_connectionStatusCallback;
+        msgCallback = m_messageCallback;
     }
     
-    if (m_messageCallback) {
-        m_messageCallback(machineId, "Disconnected from machine: " + machineId, "WARNING");
+    // Execute callbacks outside the lock
+    if (statusCallback) {
+        try {
+            statusCallback(machineId, false);
+        } catch (const std::exception& e) {
+            LOG_ERROR("Exception in connection status callback: " + std::string(e.what()));
+        }
     }
+    
+    if (msgCallback) {
+        try {
+            msgCallback(machineId, "Disconnected from machine: " + machineId, "WARNING");
+        } catch (const std::exception& e) {
+            LOG_ERROR("Exception in message callback: " + std::string(e.what()));
+        }
+    }
+    
+    LOG_INFO("OnDisconnect complete for machine: " + machineId);
 }
 
 void CommunicationManager::OnResponse(const std::string& machineId, const std::string& response)

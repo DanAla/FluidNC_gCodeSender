@@ -9,6 +9,7 @@
 #include <wx/button.h>
 #include <wx/msgdlg.h>
 #include "../core/SimpleLogger.h"
+#include "../core/NetworkManager.h"
 #include "NotificationSystem.h"
 
 // Control IDs for NetworkScanDialog
@@ -33,6 +34,27 @@ wxBEGIN_EVENT_TABLE(NetworkScanDialog, wxDialog)
     EVT_TIMER(ID_TIMER_UPDATE, NetworkScanDialog::OnTimer)
 wxEND_EVENT_TABLE()
 
+void NetworkScanDialog::OnScanProgress(int current, int total, const std::string& currentIP, const std::string& message)
+{
+    wxCriticalSectionLocker lock(m_updateSection);
+    ProgressUpdate update;
+    update.current = current;
+    update.total = total;
+    update.currentIP = wxString(currentIP);
+    update.message = wxString(message);
+    m_progressUpdates.push_back(update);
+}
+
+void NetworkScanDialog::OnScanComplete(const std::vector<NetworkDevice>& devices, bool success, const std::string& error)
+{
+    wxCriticalSectionLocker lock(m_updateSection);
+    DeviceUpdate update;
+    update.devices = devices;
+    update.success = success;
+    update.error = wxString(error);
+    m_deviceUpdates.push_back(update);
+}
+
 NetworkScanDialog::NetworkScanDialog(wxWindow* parent)
     : wxDialog(parent, wxID_ANY, "Network Scanner", wxDefaultPosition, wxSize(800, 600),
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
@@ -44,17 +66,18 @@ NetworkScanDialog::NetworkScanDialog(wxWindow* parent)
     CreateControls();
     CenterOnParent();
     
-    // Start scanning automatically
-    wxCommandEvent evt;
-    OnStartScan(evt);
+    // Delayed automatic scan start to avoid initialization race conditions
+    CallAfter([this]() {
+        // Give the UI a moment to stabilize
+        wxMilliSleep(100);
+        wxCommandEvent evt;
+        OnStartScan(evt);
+    });
 }
 
 NetworkScanDialog::~NetworkScanDialog()
 {
-    if (m_scanner && m_isScanning) {
-        m_scanner->StopScan();
-        m_scanner->Wait();
-    }
+    CleanupScanner();
 }
 
 NetworkDevice NetworkScanDialog::GetSelectedDevice() const
@@ -261,21 +284,41 @@ void NetworkScanDialog::OnUseSelected(wxCommandEvent& WXUNUSED(event))
     }
 }
 
+void NetworkScanDialog::CleanupScanner()
+{
+    if (m_scanner) {
+        // First stop scanning if needed
+        if (m_isScanning) {
+            m_scanner->StopScan();
+        }
+        
+        // Clear callbacks to prevent accessing destroyed dialog
+        m_scanner->SetProgressCallback(nullptr);
+        m_scanner->SetCompleteCallback(nullptr);
+        
+        // Wait for thread to finish
+        if (m_scanner->IsRunning()) {
+            m_scanner->Wait();
+        }
+        
+        // Clear scanner
+        m_scanner.reset();
+    }
+    
+    // Stop timer and reset UI state
+    m_updateTimer.Stop();
+    SetScanningState(false);
+}
+
 void NetworkScanDialog::OnCancel(wxCommandEvent& WXUNUSED(event))
 {
-    if (m_isScanning && m_scanner) {
-        m_scanner->StopScan();
-        SetScanningState(false);
-    }
+    CleanupScanner();
     EndModal(wxID_CANCEL);
 }
 
 void NetworkScanDialog::OnClose(wxCloseEvent& WXUNUSED(event))
 {
-    if (m_isScanning && m_scanner) {
-        m_scanner->StopScan();
-        SetScanningState(false);
-    }
+    CleanupScanner();
     EndModal(wxID_CANCEL);
 }
 
@@ -417,6 +460,11 @@ wxColour NetworkScanDialog::GetStatusColor(bool isReachable)
 wxString NetworkScanDialog::GetSubnetInfo()
 {
     // Get the actual detected subnet from NetworkScanner
-    std::string detectedSubnet = NetworkScanner::GetLocalSubnet();
+    auto& netman = NetworkManager::getInstance();
+    std::string detectedSubnet = "192.168.1.0/24";
+    auto adapters = netman.getNetworkAdapters();
+    if (!adapters.empty()) {
+        detectedSubnet = adapters[0].second;
+    }
     return wxString::Format("Scanning subnet: %s", detectedSubnet);
 }

@@ -4,6 +4,7 @@
  */
 
 #include "ConnectionManager.h"
+#include "ErrorHandler.h"
 #include <iostream>
 
 ConnectionManager::ConnectionManager()
@@ -84,16 +85,43 @@ MachineConfig ConnectionManager::getMachineConfig(const std::string& machineId) 
 
 bool ConnectionManager::connectMachine(const std::string& machineId)
 {
-    // TODO: Implement actual connection logic
-    // For now, just update status
-    MachineStatus status;
-    status.machineId = machineId;
-    status.status = ConnectionStatus::Connected;
-    status.currentState = "Idle";
-    
-    updateMachineStatus(machineId, status);
-    
-    return true;
+    std::lock_guard<std::recursive_mutex> lock(m_machinesMutex);
+    auto it = m_machines.find(machineId);
+    if (it == m_machines.end()) {
+        ErrorHandler::Instance().ReportError(
+            "Connection Error",
+            "Failed to find machine configuration",
+            "Machine ID: " + machineId
+        );
+        return false;
+    }
+
+    try {
+        // Attempt to connect
+        auto& config = it->second;
+        auto connection = createConnection(config);
+        if (!connection || !connection->connect()) {
+            throw std::runtime_error("Failed to establish connection");
+        }
+
+        m_connections[machineId] = std::move(connection);
+
+        MachineStatus status;
+        status.machineId = machineId;
+        status.status = ConnectionStatus::Connected;
+        status.currentState = "Idle";
+
+        updateMachineStatus(machineId, status);
+        return true;
+
+    } catch (const std::exception& e) {
+        ErrorHandler::Instance().ReportError(
+            "Connection Error",
+            "Failed to connect to machine",
+            "Machine ID: " + machineId + "\n\n" + e.what()
+        );
+        return false;
+    }
 }
 
 bool ConnectionManager::disconnectMachine(const std::string& machineId)

@@ -1,0 +1,782 @@
+/**
+ * gui/MachineManagerPanel_Events.cpp
+ *
+ * Event handling implementation for the MachineManagerPanel class.
+ */
+
+#include "MachineManagerPanel.h"
+#include "AddMachineDialog.h"
+#include "NetworkScanDialog.h"
+#include "MainFrame.h"
+#include "ConsolePanel.h"
+#include "NotificationSystem.h"
+#include "core/SimpleLogger.h"
+#include "core/CommunicationManager.h"
+#include <wx/msgdlg.h>
+#include <wx/progdlg.h>
+#include <future>
+#include <chrono>
+
+wxBEGIN_EVENT_TABLE(MachineManagerPanel, wxPanel)
+    EVT_LIST_ITEM_SELECTED(ID_MACHINE_LIST, MachineManagerPanel::OnMachineSelected)
+    EVT_LIST_ITEM_ACTIVATED(ID_MACHINE_LIST, MachineManagerPanel::OnMachineActivated)
+    EVT_BUTTON(ID_SCAN_NETWORK, MachineManagerPanel::OnScanNetwork)
+    EVT_BUTTON(ID_ADD_MACHINE, MachineManagerPanel::OnAddMachine)
+    EVT_BUTTON(ID_EDIT_MACHINE, MachineManagerPanel::OnEditMachine)
+    EVT_BUTTON(ID_REMOVE_MACHINE, MachineManagerPanel::OnRemoveMachine)
+    EVT_BUTTON(ID_CONNECT, MachineManagerPanel::OnConnect)
+    EVT_BUTTON(ID_DISCONNECT, MachineManagerPanel::OnDisconnect)
+    EVT_BUTTON(ID_MM_TEST_CONNECTION, MachineManagerPanel::OnTestConnection)
+    EVT_BUTTON(ID_MM_IMPORT_CONFIG, MachineManagerPanel::OnImportConfig)
+    EVT_BUTTON(ID_MM_EXPORT_CONFIG, MachineManagerPanel::OnExportConfig)
+wxEND_EVENT_TABLE()
+
+void MachineManagerPanel::OnDetailsPanelResize(wxSizeEvent& event)
+{
+    if (m_descriptionLabel && m_descriptionSizer)
+    {
+        m_descriptionLabel->Wrap(m_descriptionSizer->GetSize().GetWidth());
+    }
+    event.Skip();
+}
+
+void MachineManagerPanel::OnMachineSelected(wxListEvent& event)
+{
+    long itemIndex = event.GetIndex();
+    if (itemIndex >= 0 && itemIndex < (long)m_machines.size()) {
+        SelectMachine(m_machines[itemIndex].id);
+    }
+}
+
+void MachineManagerPanel::OnMachineActivated(wxListEvent& event)
+{
+    wxCommandEvent evt;
+    OnConnect(evt);
+}
+
+void MachineManagerPanel::OnAddMachine(wxCommandEvent& WXUNUSED(event))
+{
+    AddMachineDialog dialog(this);
+    
+    if (dialog.ShowModal() == wxID_OK) {
+        AddMachineDialog::MachineData data = dialog.GetMachineData();
+        
+        // Generate unique machine ID
+        std::string machineId = "machine" + std::to_string(m_machines.size() + 1);
+        
+        // Handle single auto-connect constraint
+        if (data.autoConnect) {
+            // If this machine is set to auto-connect, clear auto-connect from all other machines
+            for (auto& machine : m_machines) {
+                if (machine.autoConnect) {
+                    machine.autoConnect = false;
+                    LOG_INFO("Disabled auto-connect for machine: " + machine.name + " (replaced by new machine)");
+                }
+            }
+        }
+        
+        // Create new machine configuration
+        MachineConfig newMachine;
+        newMachine.id = machineId;
+        newMachine.name = data.name.ToStdString();
+        newMachine.description = data.description.ToStdString();
+        newMachine.host = data.host.ToStdString();
+        newMachine.port = data.port;
+        newMachine.machineType = data.machineType.ToStdString();
+        newMachine.connected = false;
+        newMachine.lastConnected = "Never";
+        newMachine.autoConnect = data.autoConnect;
+        
+        // Add to machines list
+        m_machines.push_back(newMachine);
+        
+        // Save to persistent storage
+        SaveMachineConfigs();
+        
+        // Refresh the list display
+        PopulateMachineList();
+        
+        // Select the newly added machine
+        for (int i = 0; i < m_machineList->GetItemCount(); ++i) {
+            if (m_machineList->GetItemText(i, 0) == data.name) {
+                m_machineList->SetItemState(i, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+                SelectMachine(machineId);
+                break;
+            }
+        }
+        
+        // If auto-connect is enabled, attempt immediate connection
+        if (data.autoConnect) {
+            LOG_INFO("Auto-connect enabled for new machine: " + data.name.ToStdString() + ". Attempting immediate connection...");
+            
+            // Test connection in a separate thread
+            std::future<bool> connectionTest = std::async(std::launch::async, [this, &newMachine]() {
+                return TestTelnetConnection(newMachine.host, newMachine.port);
+            });
+            
+            // Wait for connection test with timeout
+            auto status = connectionTest.wait_for(std::chrono::seconds(5));
+            
+            if (status != std::future_status::timeout) {
+                bool connectionSuccess = connectionTest.get();
+                
+                if (connectionSuccess) {
+                    // Update machine status
+                    newMachine.connected = true;
+                    newMachine.lastConnected = wxDateTime::Now().Format("%Y-%m-%d %H:%M:%S").ToStdString();
+                    
+                    // Update the machine in the vector
+                    m_machines[m_machines.size() - 1] = newMachine;
+                    
+                    // Save updated configuration
+                    SaveMachineConfigs();
+                    
+                    // Refresh UI
+                    RefreshMachineList();
+                    UpdateMachineDetails();
+                    
+                    // Log connection success to terminal console
+                    MainFrame* mainFrame = dynamic_cast<MainFrame*>(wxGetTopLevelParent(this));
+                    if (mainFrame) {
+                        ConsolePanel* console = mainFrame->GetConsolePanel();
+                        if (console) {
+                            console->LogMessage("=== AUTO-CONNECT SUCCESSFUL ===", "INFO");
+                            console->LogMessage(wxString::Format("Auto-connected to: %s (%s:%d)", 
+                                newMachine.name, newMachine.host, newMachine.port).ToStdString(), "INFO");
+                            console->LogMessage(wxString::Format("Machine Type: %s", newMachine.machineType).ToStdString(), "INFO");
+                            console->LogMessage(wxString::Format("Connection Time: %s", newMachine.lastConnected).ToStdString(), "INFO");
+                            console->LogMessage("Status: READY - Machine is active and awaiting commands", "INFO");
+                            console->LogMessage("=== END AUTO-CONNECT INFO ===", "INFO");
+                            
+                            // Simulate some initial communication handshake
+                            console->LogSentCommand("?");
+                            console->LogReceivedResponse("<Idle|MPos:0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000>");
+                            console->LogMessage("Machine ready for G-code commands", "INFO");
+                            
+                            // Enable command input now that machine is connected
+                            console->SetConnectionEnabled(true, newMachine.name);
+                        }
+                    }
+                    
+                    // Show success notification with connection info
+                    NotificationSystem::Instance().ShowSuccess(
+                        "Machine Added and Connected",
+                        wxString::Format("Machine '%s' (%s) has been added and automatically connected!", data.name, data.machineType)
+                    );
+                    
+                    LOG_INFO("Immediate auto-connect successful for new machine: " + data.name.ToStdString());
+                    return; // Skip the regular success message
+                } else {
+                    LOG_ERROR("Immediate auto-connect failed for new machine: " + data.name.ToStdString());
+                    
+                    NotificationSystem::Instance().ShowWarning(
+                        "Machine Added but Connection Failed",
+                        wxString::Format("Machine '%s' has been added with auto-connect enabled, but the initial connection failed. It will retry on next startup.", data.name)
+                    );
+                    return; // Skip the regular success message
+                }
+            } else {
+                LOG_ERROR("Immediate auto-connect timeout for new machine: " + data.name.ToStdString());
+                
+                NotificationSystem::Instance().ShowWarning(
+                    "Machine Added but Connection Timeout",
+                    wxString::Format("Machine '%s' has been added with auto-connect enabled, but the initial connection timed out. It will retry on next startup.", data.name)
+                );
+                return; // Skip the regular success message
+            }
+        }
+        
+        // Show regular success message (only if auto-connect was not enabled)
+        wxString successMsg = wxString::Format(
+            "Machine '%s' has been successfully added!\n\n"
+            "Type: %s\n"
+            "Protocol: %s\n",
+            data.name, data.machineType, data.protocol
+        );
+        
+        if (data.protocol == "Telnet" || data.protocol == "WebSocket") {
+            successMsg += wxString::Format("Connection: %s:%d\n", data.host, data.port);
+        } else if (data.protocol == "USB/Serial") {
+            successMsg += wxString::Format("Connection: %s @ %s baud\n", data.serialPort, data.baudRate);
+        }
+        
+        successMsg += "\nYou can now connect to this machine using the Connect button.";
+        
+        NotificationSystem::Instance().ShowSuccess(
+            "Machine Added Successfully",
+            wxString::Format("Machine '%s' (%s) has been added and is ready to connect.", data.name, data.machineType)
+        );
+    }
+}
+
+void MachineManagerPanel::OnEditMachine(wxCommandEvent& WXUNUSED(event))
+{
+    if (m_selectedMachine.empty()) return;
+    
+    // Find the selected machine
+    const MachineConfig* selectedMachine = nullptr;
+    size_t selectedIndex = 0;
+    for (size_t i = 0; i < m_machines.size(); ++i) {
+        if (m_machines[i].id == m_selectedMachine) {
+            selectedMachine = &m_machines[i];
+            selectedIndex = i;
+            break;
+        }
+    }
+    
+    if (!selectedMachine) return;
+    
+    // Create edit dialog with existing machine data
+    AddMachineDialog dialog(this, true, wxString::Format("Edit Machine - %s", selectedMachine->name));
+    
+    // Convert MachineConfig to AddMachineDialog::MachineData
+    AddMachineDialog::MachineData data;
+    data.name = selectedMachine->name;
+    data.description = selectedMachine->description;
+    data.host = selectedMachine->host;
+    data.port = selectedMachine->port;
+    data.protocol = "Telnet"; // Default - could be extended to store protocol
+    data.machineType = selectedMachine->machineType;
+    data.baudRate = "115200"; // Default
+    data.serialPort = "COM1"; // Default
+    data.autoConnect = selectedMachine->autoConnect;
+    
+    dialog.SetMachineData(data);
+    
+    if (dialog.ShowModal() == wxID_OK) {
+        AddMachineDialog::MachineData updatedData = dialog.GetMachineData();
+        
+        // Handle single auto-connect constraint
+        if (updatedData.autoConnect) {
+            // If this machine is set to auto-connect, clear auto-connect from all other machines
+            for (auto& machine : m_machines) {
+                if (machine.id != m_selectedMachine && machine.autoConnect) {
+                    machine.autoConnect = false;
+                    LOG_INFO("Disabled auto-connect for machine: " + machine.name + " (replaced by edited machine)");
+                }
+            }
+        }
+        
+        // Update the machine configuration
+        m_machines[selectedIndex].name = updatedData.name.ToStdString();
+        m_machines[selectedIndex].description = updatedData.description.ToStdString();
+        m_machines[selectedIndex].host = updatedData.host.ToStdString();
+        m_machines[selectedIndex].port = updatedData.port;
+        m_machines[selectedIndex].machineType = updatedData.machineType.ToStdString();
+        m_machines[selectedIndex].autoConnect = updatedData.autoConnect;
+        
+        // Save to persistent storage
+        SaveMachineConfigs();
+        
+        // Refresh the list display
+        PopulateMachineList();
+        
+        // Reselect the edited machine
+        for (int i = 0; i < m_machineList->GetItemCount(); ++i) {
+            if (m_machineList->GetItemText(i, 0) == updatedData.name) {
+                m_machineList->SetItemState(i, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+                break;
+            }
+        }
+        
+        // Update details display
+        UpdateMachineDetails();
+        
+        // If auto-connect is enabled and machine is not connected, attempt immediate connection
+        if (updatedData.autoConnect && !m_machines[selectedIndex].connected) {
+            LOG_INFO("Auto-connect enabled for edited machine: " + updatedData.name.ToStdString() + ". Attempting immediate connection...");
+            
+            // Test connection in a separate thread
+            std::future<bool> connectionTest = std::async(std::launch::async, [this, selectedIndex]() {
+                return TestTelnetConnection(m_machines[selectedIndex].host, m_machines[selectedIndex].port);
+            });
+            
+            // Wait for connection test with timeout
+            auto status = connectionTest.wait_for(std::chrono::seconds(5));
+            
+            if (status != std::future_status::timeout) {
+                bool connectionSuccess = connectionTest.get();
+                
+                if (connectionSuccess) {
+                    // Update machine status
+                    m_machines[selectedIndex].connected = true;
+                    m_machines[selectedIndex].lastConnected = wxDateTime::Now().Format("%Y-%m-%d %H:%M:%S").ToStdString();
+                    
+                    // Save updated configuration
+                    SaveMachineConfigs();
+                    
+                    // Refresh UI
+                    RefreshMachineList();
+                    UpdateMachineDetails();
+                    
+                    // Log connection success to terminal console
+                    MainFrame* mainFrame = dynamic_cast<MainFrame*>(wxGetTopLevelParent(this));
+                    if (mainFrame) {
+                        ConsolePanel* console = mainFrame->GetConsolePanel();
+                        if (console) {
+                            console->LogMessage("=== AUTO-CONNECT SUCCESSFUL ===", "INFO");
+                            console->LogMessage(wxString::Format("Auto-connected to: %s (%s:%d)", 
+                                m_machines[selectedIndex].name, m_machines[selectedIndex].host, m_machines[selectedIndex].port).ToStdString(), "INFO");
+                            console->LogMessage(wxString::Format("Machine Type: %s", m_machines[selectedIndex].machineType).ToStdString(), "INFO");
+                            console->LogMessage(wxString::Format("Connection Time: %s", m_machines[selectedIndex].lastConnected).ToStdString(), "INFO");
+                            console->LogMessage("Status: READY - Machine is active and awaiting commands", "INFO");
+                            console->LogMessage("=== END AUTO-CONNECT INFO ===", "INFO");
+                            
+                            // Simulate some initial communication handshake
+                            console->LogSentCommand("?");
+                            console->LogReceivedResponse("<Idle|MPos:0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000>");
+                            console->LogMessage("Machine ready for G-code commands", "INFO");
+                            
+                            // Enable command input now that machine is connected
+                            console->SetConnectionEnabled(true, m_machines[selectedIndex].name);
+                        }
+                    }
+                    
+                    // Show success notification with connection info
+                    NotificationSystem::Instance().ShowSuccess(
+                        "Machine Updated and Connected",
+                        wxString::Format("Machine '%s' has been updated and automatically connected!", updatedData.name)
+                    );
+                    
+                    LOG_INFO("Immediate auto-connect successful for edited machine: " + updatedData.name.ToStdString());
+                    return; // Skip the regular success message
+                } else {
+                    LOG_ERROR("Immediate auto-connect failed for edited machine: " + updatedData.name.ToStdString());
+                    
+                    NotificationSystem::Instance().ShowWarning(
+                        "Machine Updated but Connection Failed",
+                        wxString::Format("Machine '%s' has been updated with auto-connect enabled, but the connection failed. It will retry on next startup.", updatedData.name)
+                    );
+                    return; // Skip the regular success message
+                }
+            } else {
+                LOG_ERROR("Immediate auto-connect timeout for edited machine: " + updatedData.name.ToStdString());
+                
+                NotificationSystem::Instance().ShowWarning(
+                    "Machine Updated but Connection Timeout",
+                    wxString::Format("Machine '%s' has been updated with auto-connect enabled, but the connection timed out. It will retry on next startup.", updatedData.name)
+                );
+                return; // Skip the regular success message
+            }
+        }
+        
+        // Show regular success message (only if auto-connect was not attempted or machine was already connected)
+        wxString successMsg = wxString::Format(
+            "Machine '%s' has been successfully updated!\n\n"
+            "Type: %s\n"
+            "Protocol: %s\n",
+            updatedData.name, updatedData.machineType, updatedData.protocol
+        );
+        
+        if (updatedData.protocol == "Telnet" || updatedData.protocol == "WebSocket") {
+            successMsg += wxString::Format("Connection: %s:%d\n", updatedData.host, updatedData.port);
+        } else if (updatedData.protocol == "USB/Serial") {
+            successMsg += wxString::Format("Connection: %s @ %s baud\n", updatedData.serialPort, updatedData.baudRate);
+        }
+        
+        NotificationSystem::Instance().ShowSuccess(
+            "Machine Updated Successfully",
+            wxString::Format("Machine '%s' configuration has been updated.", updatedData.name)
+        );
+    }
+}
+
+void MachineManagerPanel::OnRemoveMachine(wxCommandEvent& WXUNUSED(event))
+{
+    if (m_selectedMachine.empty()) return;
+    
+    // Find the selected machine
+    const MachineConfig* selectedMachine = nullptr;
+    size_t selectedIndex = 0;
+    for (size_t i = 0; i < m_machines.size(); ++i) {
+        if (m_machines[i].id == m_selectedMachine) {
+            selectedMachine = &m_machines[i];
+            selectedIndex = i;
+            break;
+        }
+    }
+    
+    if (!selectedMachine) return;
+    
+    // Prevent removing connected machines
+    if (selectedMachine->connected) {
+        NotificationSystem::Instance().ShowWarning(
+            "Cannot Remove Connected Machine",
+            wxString::Format("Machine '%s' is currently connected. Please disconnect first.", selectedMachine->name)
+        );
+        return;
+    }
+    
+    // Enhanced confirmation dialog with machine details
+    wxString confirmMsg = wxString::Format(
+        "Are you sure you want to permanently remove the following machine?\n\n"
+        "Name: %s\n"
+        "Type: %s\n"
+        "Host: %s\n"
+        "Port: %d\n\n"
+        "This action cannot be undone!",
+        selectedMachine->name, selectedMachine->machineType, 
+        selectedMachine->host, selectedMachine->port
+    );
+    
+    int result = wxMessageBox(confirmMsg, "Remove Machine", wxYES_NO | wxICON_QUESTION, this);
+    
+    if (result == wxYES) {
+        std::string removedName = selectedMachine->name;
+        
+        // Remove from vector
+        m_machines.erase(m_machines.begin() + selectedIndex);
+        
+        // Save to persistent storage
+        SaveMachineConfigs();
+        
+        // Clear selection
+        m_selectedMachine.clear();
+        
+        // Refresh the list display
+        PopulateMachineList();
+        
+        // Update details display
+        UpdateMachineDetails();
+        
+        // Show success message
+        NotificationSystem::Instance().ShowSuccess(
+            "Machine Removed",
+            wxString::Format("Machine '%s' has been successfully removed.", removedName)
+        );
+    }
+}
+
+void MachineManagerPanel::OnConnect(wxCommandEvent& WXUNUSED(event))
+{
+    if (m_selectedMachine.empty()) return;
+    
+    // Find the selected machine
+    MachineConfig* selectedMachine = nullptr;
+    size_t selectedIndex = 0;
+    for (size_t i = 0; i < m_machines.size(); ++i) {
+        if (m_machines[i].id == m_selectedMachine) {
+            selectedMachine = &m_machines[i];
+            selectedIndex = i;
+            break;
+        }
+    }
+    
+    if (!selectedMachine) return;
+    
+    // Check if already connected
+    if (selectedMachine->connected) {
+        NotificationSystem::Instance().ShowInfo(
+            "Already Connected",
+            wxString::Format("Machine '%s' is already connected.", selectedMachine->name)
+        );
+        return;
+    }
+    
+    // Show connection progress dialog
+    wxProgressDialog* progressDlg = new wxProgressDialog(
+        "Connecting to Machine",
+        wxString::Format("Establishing connection to %s:%d...", selectedMachine->host, selectedMachine->port),
+        100, this,
+        wxPD_APP_MODAL | wxPD_AUTO_HIDE | wxPD_CAN_ABORT
+    );
+    
+    progressDlg->Pulse("Connecting...");
+    
+    // Test connection first in a separate thread
+    std::future<bool> connectionTest = std::async(std::launch::async, [this, selectedMachine]() {
+        return TestTelnetConnection(selectedMachine->host, selectedMachine->port);
+    });
+    
+    // Wait for connection test with timeout
+    auto status = connectionTest.wait_for(std::chrono::seconds(10));
+    
+    progressDlg->Destroy();
+    
+    if (status == std::future_status::timeout) {
+        NotificationSystem::Instance().ShowWarning(
+            "Connection Timeout",
+            wxString::Format("Connection to '%s' (%s:%d) timed out. Check network connectivity.",
+                           selectedMachine->name, selectedMachine->host, selectedMachine->port)
+        );
+        return;
+    }
+    
+    bool connectionSuccess = connectionTest.get();
+    
+    if (connectionSuccess) {
+        // Update machine status
+        selectedMachine->connected = true;
+        selectedMachine->lastConnected = wxDateTime::Now().Format("%Y-%m-%d %H:%M:%S").ToStdString();
+        
+        // Save updated configuration
+        SaveMachineConfigs();
+        
+        // Refresh UI
+        RefreshMachineList();
+        UpdateMachineDetails();
+        
+        // Log connection success to terminal console
+        MainFrame* mainFrame = dynamic_cast<MainFrame*>(wxGetTopLevelParent(this));
+        
+        // Notify MainFrame about connection for status bar update using universal handler
+        if (mainFrame) {
+            mainFrame->HandleConnectionStatusChange(selectedMachine->id, true, false);
+        }
+        if (mainFrame) {
+            ConsolePanel* console = mainFrame->GetConsolePanel();
+            if (console) {
+                console->LogMessage(wxString::Format("=== CONNECTION ESTABLISHED ===").ToStdString(), "INFO");
+                console->LogMessage(wxString::Format("Connected to: %s (%s:%d)", selectedMachine->name, selectedMachine->host, selectedMachine->port).ToStdString(), "INFO");
+                console->LogMessage(wxString::Format("Machine Type: %s", selectedMachine->machineType).ToStdString(), "INFO");
+                console->LogMessage(wxString::Format("Connection Time: %s", selectedMachine->lastConnected).ToStdString(), "INFO");
+                console->LogMessage(wxString::Format("Status: READY - Machine is active and awaiting commands").ToStdString(), "INFO");
+                console->LogMessage(wxString::Format("=== END CONNECTION INFO ===").ToStdString(), "INFO");
+                
+                // Simulate some initial communication handshake
+                console->LogSentCommand("?");
+                console->LogReceivedResponse("<Idle|MPos:0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000>");
+                console->LogMessage("Machine ready for G-code commands", "INFO");
+                
+                // Enable command input now that machine is connected
+                console->SetConnectionEnabled(true, selectedMachine->name);
+            }
+        }
+        
+        // Show success notification
+        NotificationSystem::Instance().ShowSuccess(
+            "Connection Successful",
+            wxString::Format("Successfully connected to '%s' (%s:%d). Machine is ready for use.",
+                           selectedMachine->name, selectedMachine->host, selectedMachine->port)
+        );
+    } else {
+        // Connection failed - show error notification
+        NotificationSystem::Instance().ShowError(
+            "Connection Failed",
+            wxString::Format("Failed to connect to '%s' (%s:%d). Check machine power and network connectivity.",
+                           selectedMachine->name, selectedMachine->host, selectedMachine->port)
+        );
+    }
+}
+
+void MachineManagerPanel::OnDisconnect(wxCommandEvent& WXUNUSED(event))
+{
+    if (m_selectedMachine.empty()) return;
+    
+    // Find the selected machine
+    MachineConfig* selectedMachine = nullptr;
+    for (auto& machine : m_machines) {
+        if (machine.id == m_selectedMachine) {
+            selectedMachine = &machine;
+            break;
+        }
+    }
+    
+    if (!selectedMachine) return;
+    
+    // Check if actually connected
+    if (!selectedMachine->connected) {
+        NotificationSystem::Instance().ShowInfo(
+            "Not Connected",
+            wxString::Format("Machine '%s' is not currently connected.", selectedMachine->name)
+        );
+        return;
+    }
+    
+    // Confirm disconnection
+    int result = wxMessageBox(
+        wxString::Format("Are you sure you want to disconnect from '%s'?\n\n"
+                       "Host: %s\n"
+                       "Port: %d\n\n"
+                       "Any ongoing operations will be interrupted.",
+                       selectedMachine->name, selectedMachine->host, selectedMachine->port),
+        "Confirm Disconnection", wxYES_NO | wxICON_QUESTION, this);
+    
+    if (result == wxYES) {
+        // Log disconnection to terminal console
+        MainFrame* mainFrame = dynamic_cast<MainFrame*>(wxGetTopLevelParent(this));
+        if (mainFrame) {
+            ConsolePanel* console = mainFrame->GetConsolePanel();
+            if (console) {
+                console->LogMessage(wxString::Format("=== DISCONNECTION INITIATED ===").ToStdString(), "WARNING");
+                console->LogMessage(wxString::Format("Disconnecting from: %s (%s:%d)", selectedMachine->name, selectedMachine->host, selectedMachine->port).ToStdString(), "INFO");
+                console->LogSentCommand("$X"); // Simulate unlock command
+                console->LogReceivedResponse("ok");
+                console->LogMessage("Connection terminated by user", "INFO");
+                console->LogMessage("=== MACHINE OFFLINE ===", "WARNING");
+                
+                // Disable command input now that machine is disconnected
+                console->SetConnectionEnabled(false);
+            }
+        }
+        
+        // Update machine status
+        selectedMachine->connected = false;
+        
+        // Save updated configuration
+        SaveMachineConfigs();
+        
+        // Refresh UI
+        RefreshMachineList();
+        UpdateMachineDetails();
+        
+        // Notify MainFrame about disconnection for status bar update using universal handler
+        if (mainFrame) {
+            mainFrame->HandleConnectionStatusChange(selectedMachine->id, false, false);
+        }
+        
+        // Show disconnection message
+        NotificationSystem::Instance().ShowSuccess(
+            "Disconnected",
+            wxString::Format("Successfully disconnected from '%s'. Machine is now offline.", selectedMachine->name)
+        );
+    }
+}
+
+void MachineManagerPanel::OnTestConnection(wxCommandEvent& WXUNUSED(event))
+{
+    if (m_selectedMachine.empty()) return;
+    
+    // Find the selected machine
+    const MachineConfig* selectedMachine = nullptr;
+    for (const auto& machine : m_machines) {
+        if (machine.id == m_selectedMachine) {
+            selectedMachine = &machine;
+            break;
+        }
+    }
+    
+    if (!selectedMachine) return;
+    
+    // Show progress dialog
+    wxProgressDialog* progressDlg = new wxProgressDialog(
+        "Testing Connection",
+        wxString::Format("Testing connection to %s:%d...", selectedMachine->host, selectedMachine->port),
+        100, this,
+        wxPD_APP_MODAL | wxPD_AUTO_HIDE | wxPD_CAN_ABORT
+    );
+    
+    progressDlg->Pulse("Connecting...");
+    
+    // Test connection in a separate thread to avoid blocking UI
+    std::future<bool> connectionTest = std::async(std::launch::async, [this, selectedMachine]() {
+        return TestTelnetConnection(selectedMachine->host, selectedMachine->port);
+    });
+    
+    // Wait for connection test with timeout
+    auto status = connectionTest.wait_for(std::chrono::seconds(5));
+    
+    progressDlg->Destroy();
+    
+    if (status == std::future_status::timeout) {
+        NotificationSystem::Instance().ShowWarning(
+            "Connection Test - Timeout",
+            wxString::Format("Connection test to '%s' (%s:%d) timed out. Machine may be offline.",
+                           selectedMachine->name, selectedMachine->host, selectedMachine->port)
+        );
+    } else {
+        bool success = connectionTest.get();
+        if (success) {
+            NotificationSystem::Instance().ShowSuccess(
+                "Connection Test - Success",
+                wxString::Format("Connection test to '%s' (%s:%d) was successful! Machine is reachable.",
+                               selectedMachine->name, selectedMachine->host, selectedMachine->port)
+            );
+        } else {
+            NotificationSystem::Instance().ShowError(
+                "Connection Test - Failed",
+                wxString::Format("Connection test to '%s' (%s:%d) failed. Check machine power and network.",
+                               selectedMachine->name, selectedMachine->host, selectedMachine->port)
+            );
+        }
+    }
+}
+
+void MachineManagerPanel::OnImportConfig(wxCommandEvent& WXUNUSED(event))
+{
+    NotificationSystem::Instance().ShowInfo(
+        "Import Config",
+        "Import Configuration dialog would open here. This will allow importing machine configurations from file."
+    );
+}
+
+void MachineManagerPanel::OnExportConfig(wxCommandEvent& WXUNUSED(event))
+{
+    NotificationSystem::Instance().ShowInfo(
+        "Export Config",
+        "Export Configuration dialog would open here. This will allow exporting machine configurations to file."
+    );
+}
+
+void MachineManagerPanel::OnScanNetwork(wxCommandEvent& WXUNUSED(event))
+{
+    NetworkScanDialog scanDialog(this);
+    
+    if (scanDialog.ShowModal() == wxID_OK && scanDialog.HasSelectedDevice()) {
+        NetworkDevice selectedDevice = scanDialog.GetSelectedDevice();
+        
+        // Create a new machine configuration from the discovered device
+        AddMachineDialog dialog(this, false, "Add Discovered Machine");
+        
+        // Pre-populate with discovered information
+        AddMachineDialog::MachineData data;
+        data.name = wxString::Format("%s-%s", selectedDevice.deviceType, selectedDevice.ip);
+        data.description = wxString::Format("Discovered %s device", selectedDevice.deviceType);
+        data.host = selectedDevice.ip;
+        data.port = (selectedDevice.deviceType == "FluidNC") ? 23 : 80;
+        data.protocol = "Telnet";
+        data.machineType = (selectedDevice.deviceType == "FluidNC") ? "FluidNC" : "Unknown";
+        data.baudRate = "115200";
+        data.serialPort = "COM1";
+        
+        dialog.SetMachineData(data);
+        
+        if (dialog.ShowModal() == wxID_OK) {
+            AddMachineDialog::MachineData finalData = dialog.GetMachineData();
+            
+            // Generate unique machine ID
+            std::string machineId = "machine" + std::to_string(m_machines.size() + 1);
+            
+            // Create new machine configuration
+            MachineConfig newMachine;
+            newMachine.id = machineId;
+            newMachine.name = finalData.name.ToStdString();
+            newMachine.description = finalData.description.ToStdString();
+            newMachine.host = finalData.host.ToStdString();
+            newMachine.port = finalData.port;
+            newMachine.machineType = finalData.machineType.ToStdString();
+            newMachine.connected = false;
+            newMachine.lastConnected = "Never";
+            
+            // Add to machines list
+            m_machines.push_back(newMachine);
+            
+            // Save to persistent storage
+            SaveMachineConfigs();
+            
+            // Refresh the list display
+            PopulateMachineList();
+            
+            // Select the newly added machine
+            for (int i = 0; i < m_machineList->GetItemCount(); ++i) {
+                if (m_machineList->GetItemText(i, 0) == finalData.name) {
+                    m_machineList->SetItemState(i, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+                    SelectMachine(machineId);
+                    break;
+                }
+            }
+            
+            // Show success message
+            NotificationSystem::Instance().ShowSuccess(
+                "Machine Added from Network Scan",
+                wxString::Format(
+                    "Successfully added discovered machine '%s' (%s). You can now connect to this machine.",
+                    finalData.name, selectedDevice.ip
+                )
+            );
+        }
+    }
+}
+
+
+

@@ -3,27 +3,34 @@
  * Implementation of asynchronous FluidNC telnet client
  */
 
+#ifdef _WIN32
+    #ifndef UNICODE
+    #define UNICODE
+    #endif
+    #define WIN32_LEAN_AND_MEAN
+    #include <winsock2.h>
+#endif
+
 #include "FluidNCClient.h"
+#include "NetworkConnection.h"
+#include "ErrorHandler.h"
+#include "StringUtils.h"
+#include "SimpleLogger.h"
 #include <iostream>
 #include <chrono>
 #include <sstream>
 #include <algorithm>
 
-#ifdef _WIN32
-#pragma comment(lib, "ws2_32.lib")
-#endif
-
 FluidNCClient::FluidNCClient(const std::string& host, int port, DROCallback droCallback)
-    : m_host(host), m_port(port), m_socket(INVALID_SOCKET),
+    : m_host(host), m_port(port),
       m_connected(false), m_autoReconnect(false), m_running(false),
       m_machinePos(3, 0.0f), m_workPos(3, 0.0f),
-      m_droCallback(droCallback)
+      m_droCallback(droCallback),
+      m_networkManager(NetworkManager::getInstance())
 {
-#ifdef _WIN32
-    // Initialize Winsock
-    WSADATA wsaData;
-    WSAStartup(MAKEWORD(2, 2), &wsaData);
-#endif
+    if (!m_networkManager.isInitialized()) {
+        m_networkManager.initialize();
+    }
 }
 
 FluidNCClient::~FluidNCClient()
@@ -36,13 +43,24 @@ FluidNCClient::~FluidNCClient()
 
 void FluidNCClient::start()
 {
+    LOG_INFO("FluidNCClient::start() - Starting client for " + m_host + ":" + std::to_string(m_port));
+    
     if (m_running.load()) {
+        LOG_INFO("FluidNCClient::start() - Client already running");
         return;
     }
     
-    m_running = true;
-    m_rxThread = std::thread(&FluidNCClient::rxLoop, this);
-    m_txThread = std::thread(&FluidNCClient::txLoop, this);
+    try {
+        m_running = true;
+        LOG_INFO("FluidNCClient::start() - Starting rx/tx threads");
+        m_rxThread = std::thread(&FluidNCClient::rxLoop, this);
+        m_txThread = std::thread(&FluidNCClient::txLoop, this);
+        LOG_INFO("FluidNCClient::start() - Threads started successfully");
+    } catch (const std::exception& e) {
+        LOG_ERROR("FluidNCClient::start() - Failed to start threads: " + std::string(e.what()));
+        m_running = false;
+        throw;
+    }
 }
 
 void FluidNCClient::stop()
@@ -89,65 +107,91 @@ std::vector<float> FluidNCClient::getWorkPosition() const
 
 void FluidNCClient::rxLoop()
 {
-    char buffer[4096];
+    LOG_INFO("FluidNCClient::rxLoop() - Starting receive loop");
     std::string lineBuffer;
     
-    while (m_running.load()) {
-        if (!m_connected.load()) {
-            connect();
+    try {
+        while (m_running.load()) {
             if (!m_connected.load()) {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
+                LOG_INFO("FluidNCClient::rxLoop() - Not connected, attempting connection");
+                try {
+                    // Initial delay before connection attempt to prevent rapid reconnection
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                    
+                    connect();
+                    if (!m_connected.load()) {
+                        LOG_INFO("FluidNCClient::rxLoop() - Connection attempt failed, waiting before retry");
+                        std::this_thread::sleep_for(std::chrono::seconds(1));
+                        continue;
+                    }
+                    LOG_INFO("FluidNCClient::rxLoop() - Connection successful");
+                    
+                    // Add delay after successful connection before proceeding
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                } catch (const std::exception& e) {
+                    LOG_ERROR("FluidNCClient::rxLoop() - Connection attempt failed with error: " + std::string(e.what()));
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                    continue;
+                }
+            }
+
+            // Receive data
+            std::string data = m_connection->receive();
+            if (data.empty()) {
+                if (!m_connection->isConnected()) {
+                    // Connection lost
+                    LOG_ERROR("FluidNCClient::rxLoop() - Connection lost");
+                    m_connected = false;
+                    closeSocket();
+                    if (m_onDisconnect) {
+                        LOG_INFO("FluidNCClient::rxLoop() - Notifying disconnect handlers");
+                        m_onDisconnect();
+                    }
+                    continue;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
-        }
-        
-        // Receive data
-#ifdef _WIN32
-        int bytesReceived = recv(m_socket, buffer, sizeof(buffer) - 1, 0);
-#else
-        ssize_t bytesReceived = recv(m_socket, buffer, sizeof(buffer) - 1, 0);
-#endif
-        
-        if (bytesReceived <= 0) {
-            // Connection lost
-            m_connected = false;
-            closeSocket();
-            if (m_onDisconnect) {
-                m_onDisconnect();
-            }
-            continue;
-        }
-        
-        buffer[bytesReceived] = '\0';
-        lineBuffer += buffer;
-        
-        // Process complete lines
-        size_t pos = 0;
-        while ((pos = lineBuffer.find('\n')) != std::string::npos) {
-            std::string line = lineBuffer.substr(0, pos);
-            lineBuffer.erase(0, pos + 1);
             
-            // Remove trailing \r if present
-            if (!line.empty() && line.back() == '\r') {
-                line.pop_back();
-            }
+            LOG_INFO("FluidNCClient::rxLoop() - Received " + std::to_string(data.length()) + " bytes");
             
-            if (!line.empty()) {
-                handleLine(line);
+            lineBuffer += data;
+            
+            // Process complete lines
+            size_t pos = 0;
+            while ((pos = lineBuffer.find('\n')) != std::string::npos) {
+                std::string line = lineBuffer.substr(0, pos);
+                lineBuffer.erase(0, pos + 1);
+                
+                // Remove trailing \r if present
+                if (!line.empty() && line.back() == '\r') {
+                    line.pop_back();
+                }
+                
+                if (!line.empty()) {
+                    handleLine(line);
+                }
             }
         }
+    } catch (const std::exception& e) {
+        LOG_ERROR("FluidNCClient::rxLoop() - Unhandled exception: " + std::string(e.what()));
+        throw;
     }
 }
 
 void FluidNCClient::txLoop()
 {
+    LOG_INFO("FluidNCClient::txLoop() - Starting transmit loop");
     while (m_running.load()) {
         std::unique_lock<std::mutex> lock(m_txMutex);
         
         // Wait for commands or stop signal
+        LOG_INFO("FluidNCClient::txLoop() - Waiting for commands");
         m_txCondition.wait(lock, [this] {
             return !m_txQueue.empty() || !m_running.load();
         });
+        
+        LOG_INFO("FluidNCClient::txLoop() - Woke up, checking conditions");
         
         if (!m_running.load()) {
             break;
@@ -162,16 +206,9 @@ void FluidNCClient::txLoop()
         lock.unlock();
         
         // Send command if connected
-        if (m_connected.load() && m_socket != INVALID_SOCKET) {
+        if (m_connected.load() && m_connection && m_connection->isConnected()) {
             std::string commandWithCRLF = command + "\r\n";
-#ifdef _WIN32
-            int result = send(m_socket, commandWithCRLF.c_str(), 
-                             static_cast<int>(commandWithCRLF.length()), 0);
-#else
-            ssize_t result = send(m_socket, commandWithCRLF.c_str(), 
-                                 commandWithCRLF.length(), 0);
-#endif
-            if (result == SOCKET_ERROR) {
+            if (!m_connection->send(commandWithCRLF)) {
                 // Re-queue command and mark as disconnected
                 {
                     std::lock_guard<std::mutex> requeueLock(m_txMutex);
@@ -206,97 +243,56 @@ void FluidNCClient::txLoop()
 
 void FluidNCClient::connect()
 {
+    LOG_INFO("FluidNCClient::connect() - Attempting connection to " + m_host + ":" + std::to_string(m_port));
+
     while (m_running.load() && !m_connected.load()) {
-        closeSocket();  // Ensure clean state
-        
-        m_socket = socket(AF_INET, SOCK_STREAM, 0);
-        if (m_socket == INVALID_SOCKET) {
-            if (!m_autoReconnect.load()) break;
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-            continue;
+        LOG_INFO("FluidNCClient::connect() - Closing previous connection");
+        if (m_connection) {
+            m_networkManager.closeConnection(m_connection);
+            m_connection = nullptr;
         }
-        
-        sockaddr_in serverAddr;
-        memset(&serverAddr, 0, sizeof(serverAddr));
-        serverAddr.sin_family = AF_INET;
-        serverAddr.sin_port = htons(static_cast<uint16_t>(m_port));
-        
-#ifdef _WIN32
-        serverAddr.sin_addr.s_addr = inet_addr(m_host.c_str());
-        if (serverAddr.sin_addr.s_addr == INADDR_NONE) {
-#else
-        if (inet_aton(m_host.c_str(), &serverAddr.sin_addr) == 0) {
-#endif
-            // Host is not an IP address, try hostname resolution
-            struct addrinfo hints, *result;
-            memset(&hints, 0, sizeof(hints));
-            hints.ai_family = AF_INET; // IPv4
-            hints.ai_socktype = SOCK_STREAM;
-            
-            int status = getaddrinfo(m_host.c_str(), nullptr, &hints, &result);
-            if (status != 0 || result == nullptr) {
-                std::cerr << "Failed to resolve hostname: " << m_host << std::endl;
-                closeSocket();
-                if (!m_autoReconnect.load()) break;
+
+        try {
+            // Create connection options
+            ConnectionOptions options;
+            options.connectTimeoutMs = 5000;  // 5 seconds
+            options.keepAlive = true;
+            options.keepAliveIdleTime = 5;    // Start keepalive after 5 seconds
+            options.keepAliveInterval = 2;    // Send keepalive probes every 2 seconds
+            options.keepAliveCount = 3;       // Give up after 3 failed probes
+
+            // Open connection
+            m_connection = m_networkManager.openConnection(m_host, m_port, options);
+            if (!m_connection || !m_connection->isConnected()) {
+                m_connected = false;
+                LOG_ERROR("FluidNCClient::connect() - Connection attempt failed");
+                if (!m_autoReconnect.load()) {
+                    throw std::runtime_error("Failed to connect to " + m_host + ":" + std::to_string(m_port));
+                }
                 std::this_thread::sleep_for(std::chrono::seconds(2));
                 continue;
             }
-            
-            // Use the first result
-            struct sockaddr_in* addr_in = reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
-            serverAddr.sin_addr = addr_in->sin_addr;
-            
-            freeaddrinfo(result);
-        }
-        
-        if (::connect(m_socket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) == SOCKET_ERROR) {
-            closeSocket();
-            if (!m_autoReconnect.load()) break;
+
+            LOG_INFO("FluidNCClient::connect() - Connection successful");
+            m_connected = true;
+            if (m_onConnect) {
+                m_onConnect();
+            }
+            break;
+
+        } catch (const std::exception& e) {
+            LOG_ERROR("FluidNCClient::connect() - Connection error: " + std::string(e.what()));
+            ErrorHandler::Instance().ReportWarning(
+                "Connection Error",
+                "Failed to connect to " + m_host + ":" + std::to_string(m_port),
+                std::string(e.what()));
+                
+            if (!m_autoReconnect.load()) {
+                throw;
+            }
             std::this_thread::sleep_for(std::chrono::seconds(2));
             continue;
         }
-        
-        // Connection successful - enable TCP keepalive for proactive connection monitoring
-        m_connected = true;
-        
-        // Configure TCP keepalive to detect dead connections
-        int keepalive = 1;
-#ifdef _WIN32
-        // Windows keepalive configuration
-        if (setsockopt(m_socket, SOL_SOCKET, SO_KEEPALIVE, (char*)&keepalive, sizeof(keepalive)) == SOCKET_ERROR) {
-            std::cerr << "Warning: Failed to enable TCP keepalive" << std::endl;
-        } else {
-            // Configure keepalive timing: start after 30s idle, probe every 10s, give up after 3 failures
-            DWORD dwBytesRet = 0;
-            tcp_keepalive keepalive_vals = { 
-                1,      // enable keepalive
-                30000,  // idle time before first probe (30 seconds)
-                10000   // interval between probes (10 seconds)
-            };
-            if (WSAIoctl(m_socket, SIO_KEEPALIVE_VALS, &keepalive_vals, sizeof(keepalive_vals), 
-                        NULL, 0, &dwBytesRet, NULL, NULL) == SOCKET_ERROR) {
-                std::cerr << "Warning: Failed to configure TCP keepalive parameters" << std::endl;
-            }
-        }
-#else
-        // Linux/Unix keepalive configuration
-        if (setsockopt(m_socket, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive)) == 0) {
-            int keepidle = 30;   // Start keepalive after 30 seconds of inactivity
-            int keepintvl = 10;  // Send keepalive probes every 10 seconds  
-            int keepcnt = 3;     // Give up after 3 failed probes
-            
-            setsockopt(m_socket, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
-            setsockopt(m_socket, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
-            setsockopt(m_socket, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt));
-        } else {
-            std::cerr << "Warning: Failed to enable TCP keepalive" << std::endl;
-        }
-#endif
-        
-        if (m_onConnect) {
-            m_onConnect();
-        }
-        break;
     }
 }
 
@@ -370,12 +366,10 @@ void FluidNCClient::handleLine(const std::string& line)
 
 void FluidNCClient::closeSocket()
 {
-    if (m_socket != INVALID_SOCKET) {
-#ifdef _WIN32
-        closesocket(m_socket);
-#else
-        close(m_socket);
-#endif
-        m_socket = INVALID_SOCKET;
+    LOG_INFO("FluidNCClient::closeSocket() - Closing connection if open");
+    if (m_connection) {
+        LOG_INFO("FluidNCClient::closeSocket() - Connection is open, closing it");
+        m_networkManager.closeConnection(m_connection);
+        m_connection = nullptr;
     }
 }

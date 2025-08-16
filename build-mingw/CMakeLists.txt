@@ -75,14 +75,16 @@ project(FluidNC_gCodeSender VERSION ${PROJECT_VERSION_STRING} LANGUAGES CXX RC)
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 
 # Find wxWidgets - point to our specific build (using working template)
 set(wxWidgets_ROOT_DIR "C:/wxWidgets-3.3.1")
-set(wxWidgets_LIB_DIR "C:/wxWidgets-3.3.1/build-mingw/lib/gcc_x64_lib")
+set(wxWidgets_LIB_DIR "${wxWidgets_ROOT_DIR}/lib/gcc_lib")
 set(wxWidgets_CONFIGURATION mswu)
 find_package(wxWidgets REQUIRED COMPONENTS core base adv net aui gl stc)
 
-# Manually set wxWidgets libraries and includes for MinGW (WORKING TEMPLATE)
+# Manually set wxWidgets libraries and includes for MinGW static build
 set(wxWidgets_LIBRARIES 
     "${wxWidgets_LIB_DIR}/libwxmsw33u_aui.a"
     "${wxWidgets_LIB_DIR}/libwxmsw33u_stc.a"
@@ -103,8 +105,8 @@ set(wxWidgets_LIBRARIES
     uuid odbc32 odbccp32 comctl32 rpcrt4 winmm uxtheme shlwapi version msimg32 oleacc wsock32 wininet ws2_32 iphlpapi imm32
 )
 set(wxWidgets_INCLUDE_DIRS 
-    "C:/wxWidgets-3.3.1/include"
-    "C:/wxWidgets-3.3.1/build-mingw/lib/gcc_x64_lib/mswu"
+    "${wxWidgets_ROOT_DIR}/include"
+    "${wxWidgets_ROOT_DIR}/lib/gcc_lib/mswu"
 )
 set(wxWidgets_DEFINITIONS -D__WXMSW__)
 
@@ -241,6 +243,8 @@ set(CORE_SOURCES
     ../src/core/Version.cpp
     ../src/core/BuildCounter.cpp
     ../src/core/NetworkScanner.cpp
+    ../src/core/NetworkManager.cpp
+    ../src/core/NetworkConnection.cpp
     ../src/core/MacVendorLookup.cpp
     ../src/core/FluidNCClient.cpp
     ../src/core/GCodeParser.cpp
@@ -260,8 +264,6 @@ set(GUI_SOURCES
     ../src/gui/MachineManagerPanel.cpp
     ../src/gui/MachineVisualizationPanel.cpp
     ../src/gui/AddMachineDialog.cpp
-    ../src/gui/ComprehensiveEditMachineDialog.cpp
-    ../src/gui/ComprehensiveEditMachineDialog_Discovery.cpp
     ../src/gui/NetworkScanDialog.cpp
     ../src/gui/ConsolePanel.cpp
     ../src/gui/MacroConfigDialog.cpp

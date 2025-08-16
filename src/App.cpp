@@ -10,15 +10,106 @@
 #include "core/ErrorHandler.h"
 #include "core/UpdateChecker.h"
 #include <wx/wx.h>
+#include <wx/stackwalk.h>
+#include <wx/msw/debughlp.h>
+#include <wx/msw/private.h>
+#include <wx/app.h>
+#include <sstream>
+#include <exception>
+#include <csignal>
 
 #ifdef __WXMSW__
 #include <windows.h>
 #include <tlhelp32.h>
-#include <string>
+#include <cstring>
 #endif
+
+// Dummy stack walker class
+// Global terminate handler
+void terminateHandler() {
+    try {
+        std::string error = "Application is terminating due to uncaught exception";
+        std::string stackTrace = "No stack trace available";
+
+        // First try to log
+        try {
+            LOG_ERROR(error + "\n" + stackTrace);
+        } catch (...) {
+            // Failed to log, try to write to stderr
+            fprintf(stderr, "%s\n%s\n", error.c_str(), stackTrace.c_str());
+        }
+
+        // Try to show error dialog
+        try {
+            wxMessageBox(
+                error + "\n\n" + stackTrace,
+                "Fatal Error",
+                wxOK | wxICON_ERROR
+            );
+        } catch (...) {
+            // If dialog fails, at least we logged it
+        }
+    } catch (...) {
+        // Last resort
+        fprintf(stderr, "Fatal error: Application is terminating\n");
+    }
+    abort(); // Terminate the program
+}
+
+class StackTrace {
+public:
+    void Walk(size_t skip = 0) {}
+    std::string GetStackTrace() const { return "Stack trace not available."; }
+};
+
+// Global exception handler helper
+void HandleUnhandledException(const std::string& error, const std::string& stackTrace) {
+    try {
+        LOG_ERROR("Unhandled exception: " + error + "\n" + stackTrace);
+        
+        try {
+            ErrorHandler::Instance().ReportError(
+                "Unhandled Exception",
+                "An unexpected error has occurred",
+                "Error: " + error + "\n\n"
+                "Stack trace:\n" + stackTrace + "\n\n"
+                "Please report this error to the developers."
+            );
+        } catch (...) {
+            // Fallback to basic message box
+            try {
+                wxMessageBox(
+                    "An unexpected error has occurred:\n\n" + 
+                    error + "\n\n" +
+                    "Stack trace:\n" + stackTrace + "\n\n" +
+                    "Please report this error to the developers.",
+                    "Unhandled Exception",
+                    wxOK | wxICON_ERROR
+                );
+            } catch (...) {
+                // Last resort - output to stderr
+                fprintf(stderr, "FATAL ERROR: %s\n%s\n", error.c_str(), stackTrace.c_str());
+            }
+        }
+    } catch (...) {
+        // Last resort if even error handling fails
+        wxMessageBox(
+            "A critical error has occurred and could not be properly reported.\n\n"
+            "Original error: " + error,
+            "Critical Error",
+            wxOK | wxICON_ERROR
+        );
+    }
+}
 
 bool FluidNCApp::OnInit()
 {
+    // Set global terminate handler
+    std::set_terminate(terminateHandler);
+    // Enable global exception handling
+    wxDisableAsserts();  // Disable wx asserts which can interfere with our error handling
+    SetExitOnFrameDelete(true);  // Let wxWidgets manage frame lifetime
+    
     // Initialize error handling FIRST - before anything else
     ErrorHandler::Instance().Initialize();
     
@@ -113,6 +204,35 @@ bool FluidNCApp::IsAnotherInstanceRunning()
     }
     
     return m_singleInstanceChecker->IsAnotherRunning();
+}
+
+void FluidNCApp::OnUnhandledException() {
+    try {
+        // Get current exception info
+        std::string error = "Unknown error";
+        try {
+            std::rethrow_exception(std::current_exception());
+        } catch (const std::exception& e) {
+            error = e.what();
+        } catch (...) {
+            error = "Unknown exception type";
+        }
+        
+        // Get stack trace
+        StackTrace stackWalker;
+        stackWalker.Walk(2); // Skip App's handler frame
+        std::string stackTrace = stackWalker.GetStackTrace();
+        
+        HandleUnhandledException(error, stackTrace);
+        
+    } catch (...) {
+        // Last resort
+        wxMessageBox(
+            "A critical error has occurred and could not be handled properly.",
+            "Critical Error",
+            wxOK | wxICON_ERROR
+        );
+    }
 }
 
 bool FluidNCApp::BringExistingInstanceToFront()

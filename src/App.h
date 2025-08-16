@@ -15,6 +15,7 @@ class FluidNCApp : public wxApp
 public:
     virtual bool OnInit() override;
     virtual int OnExit() override;
+    virtual void OnUnhandledException() override;
 
 private:
     MainFrame* m_mainFrame;

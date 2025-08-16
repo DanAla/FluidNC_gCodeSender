@@ -8,6 +8,7 @@
 
 #include <wx/wx.h>
 #include <wx/log.h>
+#include "StringUtils.h"
 #include <string>
 #include <vector>
 #include <memory>

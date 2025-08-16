@@ -28,6 +28,9 @@ public:
     bool HasSelectedDevice() const { return m_hasSelectedDevice; }
 
 private:
+    // Scanner cleanup
+    void CleanupScanner();
+    
     // Event handlers
     void OnStartScan(wxCommandEvent& event);
     void OnStopScan(wxCommandEvent& event);
