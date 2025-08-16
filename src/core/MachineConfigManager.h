@@ -11,6 +11,7 @@
 #include <map>
 #include <memory>
 #include <functional>
+#include <mutex>
 #include <json.hpp>
 
 using json = nlohmann::json;
@@ -201,6 +202,7 @@ private:
     // Internal data
     std::vector<EnhancedMachineConfig> m_machines;
     std::string m_activeMachineId;
+    mutable std::mutex m_mutex;
     
     // Callbacks
     MachineUpdateCallback m_machineUpdateCallback;

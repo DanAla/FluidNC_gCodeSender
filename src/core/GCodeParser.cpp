@@ -11,11 +11,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <mutex>
 
 // Static member initialization
 std::map<int, CommandType> GCodeParser::s_gcodeLookup;
 std::map<int, CommandType> GCodeParser::s_mcodeLookup;
-bool GCodeParser::s_tablesInitialized = false;
+static std::once_flag s_init_flag;
 
 // Constants
 constexpr double EPSILON = 1e-6;
@@ -68,15 +69,13 @@ void GCodeStatistics::reset() {
 
 // Constructor/Destructor
 GCodeParser::GCodeParser() {
-    initializeLookupTables();
+    std::call_once(s_init_flag, &GCodeParser::initializeLookupTables);
     resetState();
 }
 
 GCodeParser::~GCodeParser() = default;
 
 void GCodeParser::initializeLookupTables() {
-    if (s_tablesInitialized) return;
-    
     // G-code lookup table
     s_gcodeLookup[0] = CommandType::RAPID_MOVE;
     s_gcodeLookup[1] = CommandType::LINEAR_MOVE;
@@ -118,8 +117,6 @@ void GCodeParser::initializeLookupTables() {
     s_mcodeLookup[8] = CommandType::COOLANT_FLOOD;
     s_mcodeLookup[9] = CommandType::COOLANT_OFF;
     s_mcodeLookup[30] = CommandType::PROGRAM_END;
-    
-    s_tablesInitialized = true;
 }
 
 // Main parsing methods

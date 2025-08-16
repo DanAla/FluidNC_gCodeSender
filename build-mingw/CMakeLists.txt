@@ -69,7 +69,7 @@ if(CONFIGURE_VERSION_HEADER)
     endif()
 endif()
 
-project(FluidNC_gCodeSender VERSION ${PROJECT_VERSION_STRING} LANGUAGES CXX RC)
+project(FluidNC_gCodeSender VERSION ${PROJECT_VERSION_STRING} LANGUAGES CXX)
 # --- End Versioning ---
 
 # Set C++ standard
@@ -79,37 +79,38 @@ set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 
 # Find wxWidgets - point to our specific build (using working template)
-set(wxWidgets_ROOT_DIR "C:/wxWidgets-3.3.1")
-set(wxWidgets_LIB_DIR "${wxWidgets_ROOT_DIR}/lib/gcc_lib")
-set(wxWidgets_CONFIGURATION mswu)
+# set(wxWidgets_ROOT_DIR "C:/wxWidgets-3.3.1") # Disabled for generic build
+# set(wxWidgets_LIB_DIR "${wxWidgets_ROOT_DIR}/lib/gcc_lib") # Disabled for generic build
+# set(wxWidgets_CONFIGURATION mswu) # Disabled for generic build
 find_package(wxWidgets REQUIRED COMPONENTS core base adv net aui gl stc)
 
 # Manually set wxWidgets libraries and includes for MinGW static build
-set(wxWidgets_LIBRARIES 
-    "${wxWidgets_LIB_DIR}/libwxmsw33u_aui.a"
-    "${wxWidgets_LIB_DIR}/libwxmsw33u_stc.a"
-    "${wxWidgets_LIB_DIR}/libwxscintilla.a"
-    "${wxWidgets_LIB_DIR}/libwxlexilla.a"
-    "${wxWidgets_LIB_DIR}/libwxmsw33u_adv.a"
-    "${wxWidgets_LIB_DIR}/libwxmsw33u_core.a"
-    "${wxWidgets_LIB_DIR}/libwxmsw33u_gl.a"
-    "${wxWidgets_LIB_DIR}/libwxbase33u.a"
-    "${wxWidgets_LIB_DIR}/libwxbase33u_net.a"
-    "${wxWidgets_LIB_DIR}/libwxtiff.a"
-    "${wxWidgets_LIB_DIR}/libwxjpeg.a"
-    "${wxWidgets_LIB_DIR}/libwxpng.a"
-    "${wxWidgets_LIB_DIR}/libwxzlib.a"
-    "${wxWidgets_LIB_DIR}/libwxregexu.a"
-    "${wxWidgets_LIB_DIR}/libwxexpat.a"
-    gdiplus kernel32 user32 gdi32 winspool comdlg32 advapi32 shell32 ole32 oleaut32 
-    uuid odbc32 odbccp32 comctl32 rpcrt4 winmm uxtheme shlwapi version msimg32 oleacc wsock32 wininet ws2_32 iphlpapi imm32
-)
-set(wxWidgets_INCLUDE_DIRS 
-    "${wxWidgets_ROOT_DIR}/include"
-    "${wxWidgets_ROOT_DIR}/lib/gcc_lib/mswu"
-)
-set(wxWidgets_DEFINITIONS -D__WXMSW__)
+# set(wxWidgets_LIBRARIES
+#     "${wxWidgets_LIB_DIR}/libwxmsw33u_aui.a"
+#     "${wxWidgets_LIB_DIR}/libwxmsw33u_stc.a"
+#     "${wxWidgets_LIB_DIR}/libwxscintilla.a"
+#     "${wxWidgets_LIB_DIR}/libwxlexilla.a"
+#     "${wxWidgets_LIB_DIR}/libwxmsw33u_adv.a"
+#     "${wxWidgets_LIB_DIR}/libwxmsw33u_core.a"
+#     "${wxWidgets_LIB_DIR}/libwxmsw33u_gl.a"
+#     "${wxWidgets_LIB_DIR}/libwxbase33u.a"
+#     "${wxWidgets_LIB_DIR}/libwxbase33u_net.a"
+#     "${wxWidgets_LIB_DIR}/libwxtiff.a"
+#     "${wxWidgets_LIB_DIR}/libwxjpeg.a"
+#     "${wxWidgets_LIB_DIR}/libwxpng.a"
+#     "${wxWidgets_LIB_DIR}/libwxzlib.a"
+#     "${wxWidgets_LIB_DIR}/libwxregexu.a"
+#     "${wxWidgets_LIB_DIR}/libwxexpat.a"
+#     gdiplus kernel32 user32 gdi32 winspool comdlg32 advapi32 shell32 ole32 oleaut32
+#     uuid odbc32 odbccp32 comctl32 rpcrt4 winmm uxtheme shlwapi version msimg32 oleacc wsock32 wininet ws2_32 iphlpapi imm32
+# )
+# set(wxWidgets_INCLUDE_DIRS
+#     "${wxWidgets_ROOT_DIR}/include"
+#     "${wxWidgets_ROOT_DIR}/lib/gcc_lib/mswu"
+# )
+# set(wxWidgets_DEFINITIONS -D__WXMSW__)
 
+# Let find_package handle includes and definitions
 include_directories(${wxWidgets_INCLUDE_DIRS})
 add_definitions(${wxWidgets_DEFINITIONS})
 
@@ -283,7 +284,7 @@ set(APP_SOURCES
 
 # Windows resource file
 if(WIN32)
-    set(RESOURCE_FILES ../src/app.rc)
+    # set(RESOURCE_FILES ../src/app.rc) # Disabled for non-Windows build
 endif()
 
 # Include directories

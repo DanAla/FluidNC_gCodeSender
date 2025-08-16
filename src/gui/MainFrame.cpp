@@ -22,6 +22,7 @@
 #include "core/ErrorHandler.h"
 #include "core/CommunicationManager.h"
 #include "core/StateManager.h"
+#include "UIQueue.h"
 #include <wx/msgdlg.h>
 #include <wx/menu.h>
 #include <wx/statusbr.h>
@@ -61,6 +62,8 @@ MainFrame::MainFrame()
     , m_machineToolbar(nullptr) 
     , m_fileToolbar(nullptr)
 {
+    m_uiQueueTimer.SetOwner(this);
+    m_uiQueueTimer.Start(10);
     LOG_INFO("MainFrame constructor - Begin initialization");
     
     // Initialize AUI manager first - this is required for everything else
@@ -724,4 +727,19 @@ void MainFrame::UpdateStatusBar()
 #include "MainFrame_Events.cpp"
 #include "MainFrame_Layouts.cpp"
 
+void MainFrame::OnProcessUIQueue(wxTimerEvent& event)
+{
+    std::function<void()> func;
+    while (UIQueue::getInstance().pop(func))
+    {
+        try
+        {
+            func();
+        }
+        catch (const std::exception& e)
+        {
+            LOG_ERROR("Exception caught while processing UI queue: " + std::string(e.what()));
+        }
+    }
+}
 

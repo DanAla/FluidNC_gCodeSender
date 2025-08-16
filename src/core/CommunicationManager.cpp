@@ -6,6 +6,7 @@
 #include "CommunicationManager.h"
 #include "SimpleLogger.h"
 #include "ErrorHandler.h"
+#include "gui/UIQueue.h"
 
 CommunicationManager& CommunicationManager::Instance()
 {
@@ -52,7 +53,9 @@ bool CommunicationManager::ConnectMachine(const std::string& machineId, const st
             m_connections[machineId]->client = std::make_unique<FluidNCClient>(
                 host, port,
                 [this, machineId](const std::vector<float>& mpos, const std::vector<float>& wpos) {
-                    OnDROUpdate(machineId, mpos, wpos);
+                    UIQueue::getInstance().push([this, machineId, mpos, wpos]() {
+                        OnDROUpdate(machineId, mpos, wpos);
+                    });
                 }
             );
             
@@ -64,22 +67,26 @@ bool CommunicationManager::ConnectMachine(const std::string& machineId, const st
             m_connections[machineId]->client->setOnDisconnectCallback([this, machineId]() {
                 OnDisconnect(machineId);
                 
-                std::lock_guard<std::mutex> lock(m_connectionsMutex);
-                auto it = m_connections.find(machineId);
-                if (it != m_connections.end()) {
-                    ErrorHandler::Instance().ReportWarning(
-                        "Connection Lost",
-                        "Lost connection to machine " + machineId,
-                        "The machine may be offline or experiencing network issues.\n\n" 
-                        "Host: " + it->second->host + "\n" 
-                        "Port: " + std::to_string(it->second->port)
-                    );
-                }
+                UIQueue::getInstance().push([this, machineId]() {
+                    std::lock_guard<std::mutex> lock(m_connectionsMutex);
+                    auto it = m_connections.find(machineId);
+                    if (it != m_connections.end()) {
+                        ErrorHandler::Instance().ReportWarning(
+                            "Connection Lost",
+                            "Lost connection to machine " + machineId,
+                            "The machine may be offline or experiencing network issues.\n\n"
+                            "Host: " + it->second->host + "\n"
+                            "Port: " + std::to_string(it->second->port)
+                        );
+                    }
+                });
             });
             
             // Set response callback
             m_connections[machineId]->client->setResponseCallback([this, machineId](const std::string& response) {
-                OnResponse(machineId, response);
+                UIQueue::getInstance().push([this, machineId, response]() {
+                    OnResponse(machineId, response);
+                });
             });
             
             LOG_INFO("Starting connection attempt for machine: " + machineId);
@@ -155,8 +162,9 @@ bool CommunicationManager::SendCommand(const std::string& machineId, const std::
     if (it != m_connections.end() && it->second->connected.load() && it->second->client->isConnected()) {
         // Log the sent command immediately
         if (m_commandSentCallback) {
-            // Call callback directly - GUI code must handle thread safety
-            m_commandSentCallback(machineId, command);
+            UIQueue::getInstance().push([this, machineId, command]() {
+                m_commandSentCallback(machineId, command);
+            });
         }
         
         // Send the command to the machine
@@ -169,8 +177,9 @@ bool CommunicationManager::SendCommand(const std::string& machineId, const std::
         
         // Notify GUI of error
         if (m_messageCallback) {
-            // Call callback directly - GUI code must handle thread safety
-            m_messageCallback(machineId, "Cannot send command - machine not connected", "ERROR");
+            UIQueue::getInstance().push([this, machineId]() {
+                m_messageCallback(machineId, "Cannot send command - machine not connected", "ERROR");
+            });
         }
         
         return false;
@@ -260,19 +269,23 @@ void CommunicationManager::OnConnect(const std::string& machineId)
     
     // Execute callbacks outside the lock
     if (statusCallback) {
-        try {
-            statusCallback(machineId, true);
-        } catch (const std::exception& e) {
-            LOG_ERROR("Exception in connection status callback: " + std::string(e.what()));
-        }
+        UIQueue::getInstance().push([statusCallback, machineId]() {
+            try {
+                statusCallback(machineId, true);
+            } catch (const std::exception& e) {
+                LOG_ERROR("Exception in connection status callback: " + std::string(e.what()));
+            }
+        });
     }
     
     if (msgCallback) {
-        try {
-            msgCallback(machineId, "Connected to machine: " + machineId, "INFO");
-        } catch (const std::exception& e) {
-            LOG_ERROR("Exception in message callback: " + std::string(e.what()));
-        }
+        UIQueue::getInstance().push([msgCallback, machineId]() {
+            try {
+                msgCallback(machineId, "Connected to machine: " + machineId, "INFO");
+            } catch (const std::exception& e) {
+                LOG_ERROR("Exception in message callback: " + std::string(e.what()));
+            }
+        });
     }
     
     LOG_INFO("OnConnect complete for machine: " + machineId);
@@ -312,19 +325,23 @@ void CommunicationManager::OnDisconnect(const std::string& machineId)
     
     // Execute callbacks outside the lock
     if (statusCallback) {
-        try {
-            statusCallback(machineId, false);
-        } catch (const std::exception& e) {
-            LOG_ERROR("Exception in connection status callback: " + std::string(e.what()));
-        }
+        UIQueue::getInstance().push([statusCallback, machineId]() {
+            try {
+                statusCallback(machineId, false);
+            } catch (const std::exception& e) {
+                LOG_ERROR("Exception in connection status callback: " + std::string(e.what()));
+            }
+        });
     }
     
     if (msgCallback) {
-        try {
-            msgCallback(machineId, "Disconnected from machine: " + machineId, "WARNING");
-        } catch (const std::exception& e) {
-            LOG_ERROR("Exception in message callback: " + std::string(e.what()));
-        }
+        UIQueue::getInstance().push([msgCallback, machineId]() {
+            try {
+                msgCallback(machineId, "Disconnected from machine: " + machineId, "WARNING");
+            } catch (const std::exception& e) {
+                LOG_ERROR("Exception in message callback: " + std::string(e.what()));
+            }
+        });
     }
     
     LOG_INFO("OnDisconnect complete for machine: " + machineId);

@@ -46,6 +46,7 @@ wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
     EVT_AUI_PANE_BUTTON(MainFrame::OnPaneButton)
     EVT_AUI_RENDER(MainFrame::OnAuiRender)
     EVT_CLOSE(MainFrame::OnClose)
+    EVT_TIMER(wxID_ANY, MainFrame::OnProcessUIQueue)
 wxEND_EVENT_TABLE()
 
 // Event handlers

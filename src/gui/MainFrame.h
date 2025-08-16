@@ -3,6 +3,7 @@
 #include <wx/wx.h>
 #include <wx/aui/aui.h>
 #include <wx/statusbr.h>
+#include <wx/timer.h>
 #include <wx/toolbar.h>
 #include <memory>
 #include <map>
@@ -158,6 +159,10 @@ private:
     void SetMachineConnected(bool connected) { m_hasMachineConnected = connected; }
     bool ShouldAllowPanelAccess(PanelID panelId) const;
     void MinimizeNonEssentialPanels();
+
+    // UI Queue Timer
+    wxTimer m_uiQueueTimer;
+    void OnProcessUIQueue(wxTimerEvent& event);
     
     wxDECLARE_EVENT_TABLE();
 };

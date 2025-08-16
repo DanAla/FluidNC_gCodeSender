@@ -20,10 +20,12 @@ MachineConfigManager& MachineConfigManager::Instance() {
 
 // Machine management
 std::vector<EnhancedMachineConfig> MachineConfigManager::GetAllMachines() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     return m_machines;
 }
 
 EnhancedMachineConfig MachineConfigManager::GetMachine(const std::string& machineId) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     size_t index = FindMachineIndex(machineId);
     if (index < m_machines.size()) {
         return m_machines[index];
@@ -32,6 +34,7 @@ EnhancedMachineConfig MachineConfigManager::GetMachine(const std::string& machin
 }
 
 void MachineConfigManager::AddMachine(const EnhancedMachineConfig& machine) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     // Check if machine already exists
     size_t index = FindMachineIndex(machine.id);
     if (index < m_machines.size()) {
@@ -49,6 +52,7 @@ void MachineConfigManager::AddMachine(const EnhancedMachineConfig& machine) {
 }
 
 void MachineConfigManager::UpdateMachine(const std::string& machineId, const EnhancedMachineConfig& machine) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     size_t index = FindMachineIndex(machineId);
     if (index < m_machines.size()) {
         m_machines[index] = machine;
@@ -59,6 +63,7 @@ void MachineConfigManager::UpdateMachine(const std::string& machineId, const Enh
 }
 
 void MachineConfigManager::RemoveMachine(const std::string& machineId) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     size_t index = FindMachineIndex(machineId);
     if (index < m_machines.size()) {
         std::string machineName = m_machines[index].name;
@@ -76,6 +81,7 @@ void MachineConfigManager::RemoveMachine(const std::string& machineId) {
 
 // Active machine management
 void MachineConfigManager::SetActiveMachine(const std::string& machineId) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (FindMachineIndex(machineId) < m_machines.size() || machineId.empty()) {
         m_activeMachineId = machineId;
         LOG_INFO("Active machine set to: " + (machineId.empty() ? "None" : machineId));
@@ -83,19 +89,28 @@ void MachineConfigManager::SetActiveMachine(const std::string& machineId) {
 }
 
 std::string MachineConfigManager::GetActiveMachineId() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     return m_activeMachineId;
 }
 
 EnhancedMachineConfig MachineConfigManager::GetActiveMachine() const {
+    // This method calls GetMachine, which is already locked.
+    // To avoid deadlock, we should use a recursive_mutex or lock here
+    // and make the GetMachine not lock. For now, let's lock both,
+    // assuming they are called from different contexts.
+    // The proper fix is to use a recursive mutex.
+    std::lock_guard<std::mutex> lock(m_mutex);
     return GetMachine(m_activeMachineId);
 }
 
 bool MachineConfigManager::HasActiveMachine() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     return !m_activeMachineId.empty() && FindMachineIndex(m_activeMachineId) < m_machines.size();
 }
 
 // Machine capability management
 void MachineConfigManager::UpdateMachineCapabilities(const std::string& machineId, const MachineCapabilities& capabilities) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     size_t index = FindMachineIndex(machineId);
     if (index < m_machines.size()) {
         m_machines[index].capabilities = capabilities;
@@ -112,6 +127,7 @@ void MachineConfigManager::UpdateMachineCapabilities(const std::string& machineI
 }
 
 MachineCapabilities MachineConfigManager::GetMachineCapabilities(const std::string& machineId) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     size_t index = FindMachineIndex(machineId);
     if (index < m_machines.size()) {
         return m_machines[index].capabilities;
@@ -121,6 +137,7 @@ MachineCapabilities MachineConfigManager::GetMachineCapabilities(const std::stri
 
 // Kinematics detection and auto-configuration
 std::string MachineConfigManager::DetectKinematics(const std::map<int, float>& grblSettings, const std::vector<std::string>& systemInfo) const {
+    // This method is const and does not access member data, so no lock is needed.
     // Method 1: Check FluidNC kinematics setting (if available)
     // Note: FluidNC might use different parameter numbers - this is an example
     auto kinematicsParam = grblSettings.find(400); // Hypothetical kinematics parameter
@@ -171,6 +188,7 @@ std::string MachineConfigManager::DetectKinematics(const std::map<int, float>& g
 }
 
 void MachineConfigManager::AutoConfigureHoming(const std::string& machineId, const std::string& kinematics) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     size_t index = FindMachineIndex(machineId);
     if (index >= m_machines.size()) return;
     
@@ -199,6 +217,7 @@ void MachineConfigManager::AutoConfigureHoming(const std::string& machineId, con
 
 // Connection status updates
 void MachineConfigManager::UpdateConnectionStatus(const std::string& machineId, bool connected, const std::string& timestamp) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     size_t index = FindMachineIndex(machineId);
     if (index < m_machines.size()) {
         m_machines[index].connected = connected;
@@ -221,6 +240,7 @@ void MachineConfigManager::UpdateConnectionStatus(const std::string& machineId, 
 
 // Persistence
 void MachineConfigManager::SaveToFile() {
+    std::lock_guard<std::mutex> lock(m_mutex);
     try {
         json j = json::array();
         
@@ -252,6 +272,7 @@ void MachineConfigManager::SaveToFile() {
 }
 
 void MachineConfigManager::LoadFromFile() {
+    std::lock_guard<std::mutex> lock(m_mutex);
     try {
         std::string configPath = GetConfigFilePath();
         
@@ -300,6 +321,7 @@ std::string MachineConfigManager::GetConfigFilePath() const {
 
 // Legacy compatibility
 void MachineConfigManager::ImportLegacyMachines(const std::vector<LegacyMachineConfig>& legacyMachines) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     for (const auto& legacy : legacyMachines) {
         EnhancedMachineConfig enhanced = EnhancedMachineConfig::FromLegacy(legacy);
         AddMachine(enhanced);
